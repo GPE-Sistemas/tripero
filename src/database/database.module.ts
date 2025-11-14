@@ -9,8 +9,8 @@ import {
   DB_SYNCHRONIZE,
   DB_LOGGING,
 } from '../env';
-import { Trip, Stop } from './entities';
-import { TripRepository, StopRepository } from './repositories';
+import { Trip, Stop, TrackerState } from './entities';
+import { TripRepository, StopRepository, TrackerStateRepository } from './repositories';
 
 @Module({
   imports: [
@@ -21,7 +21,7 @@ import { TripRepository, StopRepository } from './repositories';
       username: DB_USERNAME,
       password: DB_PASSWORD,
       database: DB_DATABASE,
-      entities: [Trip, Stop],
+      entities: [Trip, Stop, TrackerState],
       synchronize: DB_SYNCHRONIZE, // Solo en desarrollo
       logging: DB_LOGGING,
       // Opciones adicionales para TimescaleDB
@@ -31,9 +31,9 @@ import { TripRepository, StopRepository } from './repositories';
         idleTimeoutMillis: 30000,
       },
     }),
-    TypeOrmModule.forFeature([Trip, Stop]),
+    TypeOrmModule.forFeature([Trip, Stop, TrackerState]),
   ],
-  providers: [TripRepository, StopRepository],
-  exports: [TypeOrmModule, TripRepository, StopRepository],
+  providers: [TripRepository, StopRepository, TrackerStateRepository],
+  exports: [TypeOrmModule, TripRepository, StopRepository, TrackerStateRepository],
 })
 export class DatabaseModule {}

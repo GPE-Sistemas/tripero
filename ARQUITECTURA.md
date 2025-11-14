@@ -24,8 +24,11 @@
 - ✅ Detectar inicio y fin de viajes en tiempo real
 - ✅ Calcular métricas de viajes (distancia, velocidad, duración, etc.)
 - ✅ Detectar paradas y pausas durante viajes
+- ✅ Calcular y mantener odómetro acumulativo por tracker
+- ✅ Mantener estado en tiempo real de cada tracker
 - ✅ Persistir trips y stops en base de datos propia
 - ✅ Exponer APIs REST para consultar viajes históricos
+- ✅ Exponer APIs REST para consultar estado de trackers
 - ✅ Proveer datos para reportes y análisis
 
 ### NO Responsabilidades
@@ -372,6 +375,71 @@ SELECT add_compression_policy('trips', INTERVAL '7 days');
 -- Retención automática: borrar trips > 2 años
 SELECT add_retention_policy('trips', INTERVAL '2 years');
 ```
+
+#### Tabla: tracker_state
+
+```sql
+CREATE TABLE tracker_state (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Identificadores
+  tracker_id VARCHAR(255) UNIQUE NOT NULL,
+  device_id VARCHAR(255) NOT NULL,
+
+  -- Odómetro (en metros)
+  total_odometer DOUBLE PRECISION NOT NULL DEFAULT 0,
+  trip_odometer_start DOUBLE PRECISION,
+
+  -- Última posición conocida
+  last_position_time TIMESTAMPTZ,
+  last_latitude DOUBLE PRECISION,
+  last_longitude DOUBLE PRECISION,
+  last_speed DOUBLE PRECISION,
+  last_ignition BOOLEAN,
+  last_heading DOUBLE PRECISION,
+  last_altitude DOUBLE PRECISION,
+
+  -- Estado de movimiento
+  current_state VARCHAR(20), -- 'STOPPED', 'MOVING', 'PAUSED', 'UNKNOWN'
+  state_since TIMESTAMPTZ,
+
+  -- Trip actual
+  current_trip_id UUID,
+  trip_start_time TIMESTAMPTZ,
+
+  -- Estadísticas acumulativas
+  total_trips_count INTEGER DEFAULT 0,
+  total_driving_time INTEGER DEFAULT 0, -- segundos
+  total_idle_time INTEGER DEFAULT 0,
+  total_stops_count INTEGER DEFAULT 0,
+
+  -- Metadata
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  -- Timestamps
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_tracker_state_tracker_id ON tracker_state(tracker_id);
+CREATE INDEX idx_tracker_state_last_seen ON tracker_state(last_seen_at DESC);
+```
+
+**Nota**: Esta tabla NO es hypertable porque almacena el estado **actual** de cada tracker, no series temporales. Es una tabla de lookup rápido.
+
+**Almacenamiento dual**:
+- **Redis**: Estado en tiempo real (TTL 7 días, actualizado con cada posición)
+- **PostgreSQL**: Persistencia (snapshot cada 100 posiciones o cada trip completado)
+
+**Propósito**:
+- Calcular y mantener odómetro acumulativo GPS
+- Última posición conocida de cada tracker
+- Estado actual (STOPPED/MOVING/etc.)
+- Trip actualmente en progreso
+- Estadísticas acumulativas (total trips, tiempo conduciendo, etc.)
+
+---
 
 #### Tabla: stops
 
@@ -780,6 +848,158 @@ GET /trips/stats?idCliente=xxx&from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z
 **Query Parameters**: Similar a `/trips`
 
 **Response**: Similar a `/trips` pero con datos de stops
+
+---
+
+#### GET /trackers/:trackerId/status
+
+**Propósito**: Obtener estado completo de un tracker en tiempo real
+
+**Path Parameters**:
+- `trackerId`: Identificador del tracker (IMEI, deviceId, etc.)
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "trackerId": "IMEI-123456789012345",
+    "deviceId": "IMEI-123456789012345",
+
+    "odometer": {
+      "total": 1234567,        // metros
+      "totalKm": 1234,         // km
+      "currentTrip": 8500,     // metros del trip actual
+      "currentTripKm": 8       // km del trip actual
+    },
+
+    "currentState": {
+      "state": "MOVING",       // STOPPED | MOVING | PAUSED | UNKNOWN | OFFLINE
+      "since": "2024-11-14T10:30:00Z",
+      "duration": 3600         // segundos en este estado
+    },
+
+    "lastPosition": {
+      "timestamp": "2024-11-14T12:00:00Z",
+      "latitude": -34.6037,
+      "longitude": -58.3816,
+      "speed": 45.5,
+      "ignition": true,
+      "heading": 180,
+      "altitude": 25.5,
+      "age": 120               // segundos desde última posición
+    },
+
+    "currentTrip": {
+      "tripId": "550e8400-e29b-41d4-a716-446655440000",
+      "startTime": "2024-11-14T10:30:00Z",
+      "duration": 5400,
+      "distance": 8500,
+      "avgSpeed": 42,
+      "maxSpeed": 65,
+      "odometerAtStart": 1226067
+    },
+
+    "statistics": {
+      "totalTrips": 1523,
+      "totalDrivingTime": 876543,
+      "totalDrivingHours": 243.5,
+      "totalIdleTime": 123456,
+      "totalIdleHours": 34.3,
+      "totalStops": 4567,
+      "firstSeen": "2023-01-15T08:00:00Z",
+      "lastSeen": "2024-11-14T12:00:00Z",
+      "daysActive": 669
+    },
+
+    "health": {
+      "status": "online",      // online | offline | stale
+      "lastSeenAgo": 120       // segundos
+    }
+  }
+}
+```
+
+---
+
+#### GET /trackers
+
+**Propósito**: Listar trackers activos
+
+**Query Parameters**:
+```typescript
+{
+  status?: 'online' | 'offline' | 'all';  // default: 'online'
+  hoursAgo?: number;                       // default: 24
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": [/* array de tracker status */],
+  "total": 150,
+  "filters": {
+    "status": "online",
+    "hoursAgo": 24
+  }
+}
+```
+
+---
+
+#### GET /trackers/stats
+
+**Propósito**: Estadísticas globales de todos los trackers
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalTrackers": 1000,
+    "onlineTrackers": 850,
+    "offlineTrackers": 150,
+    "totalOdometer": 1234567890,     // metros
+    "totalOdometerKm": 1234567,      // km
+    "totalTrips": 156789,
+    "totalDrivingTime": 98765432,    // segundos
+    "totalDrivingHours": 27434.8     // horas
+  }
+}
+```
+
+---
+
+#### POST /trackers/:trackerId/odometer/reset
+
+**Propósito**: Resetear odómetro de un tracker
+
+**Path Parameters**:
+- `trackerId`: Identificador del tracker
+
+**Body**:
+```json
+{
+  "newValue": 0,
+  "reason": "Tracker reemplazado"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Odometer reset to 0 meters",
+  "data": {
+    "trackerId": "IMEI-123456789012345",
+    "newOdometerValue": 0,
+    "newOdometerKm": 0,
+    "reason": "Tracker reemplazado"
+  }
+}
+```
 
 ---
 

@@ -3,6 +3,7 @@ import { IPositionEvent, ITripStartedEvent, ITripCompletedEvent } from '../../in
 import { StateMachineService } from './state-machine.service';
 import { DeviceStateService } from './device-state.service';
 import { EventPublisherService } from './event-publisher.service';
+import { TrackerStateService } from './tracker-state.service';
 import { MotionState } from '../models';
 
 /**
@@ -12,6 +13,7 @@ import { MotionState } from '../models';
  * - Validación de posiciones
  * - Throttling
  * - Máquina de estados
+ * - Cálculo de odómetro
  * - Persistencia de estado
  * - Publicación de eventos
  */
@@ -25,6 +27,7 @@ export class PositionProcessorService {
     private readonly stateMachine: StateMachineService,
     private readonly deviceState: DeviceStateService,
     private readonly eventPublisher: EventPublisherService,
+    private readonly trackerState: TrackerStateService,
   ) {
     // Log de métricas cada minuto
     setInterval(() => {
@@ -56,18 +59,21 @@ export class PositionProcessorService {
         return;
       }
 
-      // 2. Obtener estado actual del dispositivo
+      // 2. Actualizar estado del tracker (odómetro, última posición, etc.)
+      await this.trackerState.updateWithPosition(position);
+
+      // 3. Obtener estado actual del dispositivo
       const currentState = await this.deviceState.getDeviceState(
         position.deviceId,
       );
 
-      // 3. Procesar con la máquina de estados
+      // 4. Procesar con la máquina de estados
       const result = this.stateMachine.processPosition(position, currentState);
 
-      // 4. Guardar nuevo estado
+      // 5. Guardar nuevo estado
       await this.deviceState.saveDeviceState(result.updatedState);
 
-      // 5. Ejecutar acciones (publicar eventos)
+      // 6. Ejecutar acciones (publicar eventos)
       await this.executeActions(position, result);
 
       // 6. Log de transición si ocurrió
@@ -123,6 +129,12 @@ export class PositionProcessorService {
         };
 
         await this.eventPublisher.publishTripStarted(event);
+
+        // Notificar al TrackerStateService
+        await this.trackerState.onTripStarted(
+          position.deviceId,
+          updatedState.currentTripId,
+        );
       }
 
       // Finalizar trip
@@ -158,6 +170,14 @@ export class PositionProcessorService {
         };
 
         await this.eventPublisher.publishTripCompleted(event);
+
+        // Notificar al TrackerStateService (para actualizar estadísticas)
+        await this.trackerState.onTripCompleted(
+          position.deviceId,
+          event.duration,
+          0, // idle time - TODO: calcular desde trip
+          event.stopsCount,
+        );
 
         // Limpiar datos del trip en el estado
         updatedState.currentTripId = undefined;

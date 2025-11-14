@@ -5,6 +5,11 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 -- Este script se ejecuta para configurar las hypertables después
 -- de que TypeORM cree las tablas
 
+-- Tablas gestionadas por TypeORM:
+-- - trips: Viajes completados (hypertable)
+-- - stops: Paradas detectadas (hypertable)
+-- - tracker_state: Estado actual de cada tracker (tabla normal, no hypertable)
+
 -- Nota: Este script asume que las tablas ya existen
 -- Si usas DB_SYNCHRONIZE=true en desarrollo, TypeORM creará las tablas
 -- Luego necesitarás ejecutar manualmente los siguientes comandos:

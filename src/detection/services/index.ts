@@ -3,3 +3,4 @@ export * from './device-state.service';
 export * from './event-publisher.service';
 export * from './position-processor.service';
 export * from './position-subscriber.service';
+export * from './tracker-state.service';
