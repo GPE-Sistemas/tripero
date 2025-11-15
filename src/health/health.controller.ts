@@ -14,4 +14,9 @@ export class HealthController {
   async ready() {
     return await this.healthService.ready();
   }
+
+  @Get('live')
+  async live() {
+    return { status: 'ok', timestamp: new Date().toISOString() };
+  }
 }
