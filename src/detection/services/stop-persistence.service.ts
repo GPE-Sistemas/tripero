@@ -81,15 +81,13 @@ export class StopPersistenceService implements OnModuleInit {
       const [longitude, latitude] = event.location.coordinates;
 
       await this.stopRepository.create({
+        id: event.stopId,
         id_activo: event.deviceId,
         start_time: new Date(event.startTime),
         latitude,
         longitude,
         reason: event.reason,
         trip_id: event.tripId,
-        metadata: {
-          stopId: event.stopId,
-        },
       });
 
       this.logger.log(

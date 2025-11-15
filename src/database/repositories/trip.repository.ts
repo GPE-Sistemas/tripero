@@ -4,6 +4,7 @@ import { Repository, Between, LessThanOrEqual } from 'typeorm';
 import { Trip } from '../entities/trip.entity';
 
 export interface ICreateTripData {
+  id: string;
   id_activo: string;
   start_time: Date;
   start_lat: number;
