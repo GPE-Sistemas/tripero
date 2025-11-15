@@ -5,154 +5,85 @@
 ### Fase 0: Setup y Arquitectura Base
 - [x] Decisiones arquitectónicas documentadas (ARQUITECTURA.md)
 - [x] Configuración de TypeORM con PostgreSQL
-- [x] Entidades creadas (Trip, Stop)
-- [x] Repositorios implementados con métodos CRUD y estadísticas
-- [x] Servicios auxiliares (Redis, HTTP, Logger)
+- [x] Entidades creadas (Trip, Stop, TrackerState)
+- [x] Repositorios implementados con métodos CRUD y queries optimizadas
+- [x] Servicios auxiliares (Redis, Logger)
 - [x] Health checks (Redis + PostgreSQL)
 - [x] Docker Compose para desarrollo local
-- [x] Dockerfile para producción
-- [x] Scripts de inicialización de base de datos
+- [x] Dockerfile para producción con multi-stage build
 - [x] README con documentación completa
 - [x] Licencia MIT
 - [x] Package.json configurado como opensource
+
+### Fase 1: Detection Module (Detección de Trips y Stops)
+- [x] Módulo `detection/` creado
+- [x] PositionSubscriberService (suscripción a Redis `position:new`)
+- [x] PositionProcessorService con throttling y validación
+- [x] StateMachineService con estados: STOPPED, MOVING, IDLE, PAUSED
+- [x] Lógica de transiciones de estados (ignition-first)
+- [x] Detección de trips (trip:started, trip:completed)
+- [x] Detección de stops (stop:started, stop:completed)
+- [x] EventPublisherService para publicar eventos a Redis
+- [x] Cálculo de odómetro acumulativo
+- [x] Cálculo de métricas (distance, avg_speed, max_speed)
+- [x] Manejo de estado en Redis por dispositivo
+
+### Fase 2: Persistence Module
+- [x] TripPersistenceService (batch writes a PostgreSQL)
+- [x] StopPersistenceService (batch writes a PostgreSQL)
+- [x] Eventos Redis: trip:started, trip:completed, stop:started, stop:completed
+- [x] Tablas en PostgreSQL con índices optimizados
+- [x] Actualización de trips activos con métricas finales
+- [x] Actualización de stops activos con duración
+- [x] Campos para geocoding (start_address, end_address, address)
+
+### Fase 3: API REST (Consultas)
+- [x] ReportsModule con controller y service
+- [x] `GET /api/reports/trips` - Compatible con Traccar
+- [x] `GET /api/reports/stops` - Compatible con Traccar
+- [x] Query params: deviceId (array), from, to
+- [x] DTOs compatibles con formato Traccar (TripResponseDto, StopResponseDto)
+- [x] Validación con class-validator
+- [x] Paginación y filtrado por rango de fechas
+- [x] Soporte para múltiples devices en una sola consulta
 
 ## 🚧 En Progreso
 
 Ninguna tarea en progreso actualmente.
 
-## 📋 Próximas Fases
+## 📋 Pendiente
 
-### Fase 1: Detection Module (Detección de Trips y Stops)
-**Duración estimada: 2-3 semanas**
+### Geocoding
+- [ ] GeocodingService con integración a Nominatim
+- [ ] Llamar a geocoding desde TripPersistenceService
+- [ ] Llamar a geocoding desde StopPersistenceService
+- [ ] Poblar campos start_address, end_address en trips
+- [ ] Poblar campo address en stops
+- [ ] Cache de geocoding para evitar consultas duplicadas
+- [ ] Configuración de Nominatim (Docker local o API pública)
 
-#### 1.1 Procesamiento de Posiciones GPS
-- [ ] Crear módulo `detection/`
-- [ ] Servicio de procesamiento de posiciones (`position-processor.service.ts`)
-- [ ] Throttling de posiciones (cada 1 segundo por defecto)
-- [ ] Validación de coordenadas y datos GPS
-- [ ] Manejo de posiciones duplicadas
-
-#### 1.2 Máquina de Estados para Trips
-- [ ] Implementar estados: `STOPPED`, `MOVING`, `IDLE`, `UNKNOWN`
-- [ ] Lógica de transición de estados
-- [ ] Detección ignition-first (priorizar estado de ignición)
-- [ ] Umbrales contextuales por velocidad
-- [ ] Estado en Redis para cada activo
-
-#### 1.3 Detección de Stops
-- [ ] Algoritmo de detección de paradas
-- [ ] Cálculo de duración de paradas
-- [ ] Geocodificación de ubicaciones de parada (integración con Nominatim)
-- [ ] Clasificación de tipos de parada
-
-#### 1.4 Integración Redis PubSub
-- [ ] Suscripción a eventos de posiciones GPS
-- [ ] Publicación de eventos de trips (inicio/fin)
-- [ ] Publicación de eventos de stops (inicio/fin)
-- [ ] Canal: `gps:position:*` → entrada
-- [ ] Canal: `trip:started`, `trip:ended`, `stop:started`, `stop:ended` → salida
-
-#### 1.5 Testing
-- [ ] Unit tests para detección de estados
+### Testing
+- [ ] Unit tests para PositionProcessorService
+- [ ] Unit tests para StateMachineService
+- [ ] Unit tests para TripPersistenceService
+- [ ] Unit tests para StopPersistenceService
 - [ ] Unit tests para repositorios
 - [ ] Integration tests con Redis y PostgreSQL
+- [ ] E2E tests para endpoints de reportes
 - [ ] Tests de casos edge (GPS loss, ignition flapping, etc.)
+- [ ] Cobertura > 80%
 
-### Fase 2: Persistence Module (Escritura Batch)
-**Duración estimada: 1-2 semanas**
+### Campos Opcionales (Baja Prioridad)
+- [ ] deviceName en TripResponseDto (requiere join con gestion-api-datos)
+- [ ] spentFuel en TripResponseDto (requiere sensores de combustible)
+- [ ] engineHours en StopResponseDto (requiere datos del motor)
+- [ ] driverUniqueId y driverName (requiere integración con gestión de conductores)
 
-#### 2.1 Batch Writer
-- [ ] Servicio de escritura batch (`batch-writer.service.ts`)
-- [ ] Cola en memoria para trips pendientes
-- [ ] Cola en memoria para stops pendientes
-- [ ] Flush cada 5-10 segundos o al alcanzar N registros
-- [ ] Manejo de errores y retry
-
-#### 2.2 Gestión de Trips
-- [ ] Creación de trips en PostgreSQL
-- [ ] Actualización de trips activos
-- [ ] Cierre de trips
-- [ ] Agregación de route_points
-- [ ] Cálculo de estadísticas (distance, avg_speed, max_speed)
-
-#### 2.3 Gestión de Stops
-- [ ] Creación de stops en PostgreSQL
-- [ ] Actualización de stops activos
-- [ ] Cierre de stops
-- [ ] Contador de stops por trip
-
-#### 2.4 Optimizaciones PostgreSQL
-- [ ] Migración para crear tables
-- [ ] Configuración de compresión automática
-- [ ] Políticas de retención de datos
-- [ ] Índices optimizados para queries comunes
-
-#### 2.5 Testing
-- [ ] Tests de escritura batch
-- [ ] Tests de performance (throughput)
-- [ ] Tests de integridad de datos
-
-### Fase 3: API REST (Consultas)
-**Duración estimada: 1-2 semanas**
-
-#### 3.1 Endpoints de Trips
-- [ ] `GET /trips/:id` - Obtener trip por ID
-- [ ] `GET /trips/asset/:id_activo` - Trips de un activo
-- [ ] `GET /trips/asset/:id_activo/active` - Trip activo de un activo
-- [ ] `GET /trips/asset/:id_activo/stats` - Estadísticas de trips
-- [ ] Query params: `startDate`, `endDate`, `limit`, `offset`
-
-#### 3.2 Endpoints de Stops
-- [ ] `GET /stops/:id` - Obtener stop por ID
-- [ ] `GET /stops/trip/:trip_id` - Stops de un trip
-- [ ] `GET /stops/asset/:id_activo` - Stops de un activo
-- [ ] `GET /stops/asset/:id_activo/stats` - Estadísticas de stops
-
-#### 3.3 Endpoints de Visualización
-- [ ] `GET /trips/:id/current` - Trip actual con ruta snapped (OSRM)
-- [ ] `GET /trips/:id/route` - Ruta completa de un trip
-- [ ] Integración con OSRM para route snapping
-- [ ] Integración con Nominatim para geocoding
-
-#### 3.4 Validación y Documentación
-- [ ] DTOs con class-validator
+### Documentación
 - [ ] Swagger/OpenAPI documentation
-- [ ] Ejemplos de respuestas
-- [ ] Manejo de errores HTTP
-
-#### 3.5 Testing
-- [ ] E2E tests para todos los endpoints
-- [ ] Tests de validación
-- [ ] Tests de paginación
-
-### Fase 4: Optimizaciones y Monitoreo (Opcional/Futuro)
-**Duración estimada: 2-3 semanas**
-
-#### 4.1 Continuous Aggregates (PostgreSQL)
-- [ ] Vista materializada para estadísticas diarias
-- [ ] Vista materializada para estadísticas por hora
-- [ ] Refresh policies automáticas
-
-#### 4.2 Cache con Redis
-- [ ] Cache de trips activos
-- [ ] Cache de estadísticas recientes
-- [ ] TTL configurables
-
-#### 4.3 Métricas y Observabilidad
-- [ ] Prometheus metrics
-  - [ ] Contador de posiciones procesadas
-  - [ ] Contador de trips creados/cerrados
-  - [ ] Contador de stops creados/cerrados
-  - [ ] Latencia de procesamiento
-  - [ ] Tamaño de batches
-- [ ] Grafana dashboards
-- [ ] Logs estructurados con contexto
-
-#### 4.4 Mejoras de Performance
-- [ ] Profiling de queries lentas
-- [ ] Optimización de índices
-- [ ] Connection pooling tuning
-- [ ] Worker threads para procesamiento paralelo
+- [ ] Guía de integración actualizada
+- [ ] Ejemplos de requests/responses
+- [ ] Diagramas de flujo actualizados
 
 ## 🔮 Futuras Mejoras (Backlog)
 
@@ -164,26 +95,26 @@ Ninguna tarea en progreso actualmente.
 - [ ] Predicción de destinos frecuentes
 - [ ] Clustering de paradas frecuentes (POIs)
 
+### Optimizaciones
+- [ ] Cache con Redis para trips activos
+- [ ] Cache de estadísticas recientes
+- [ ] Métricas Prometheus
+- [ ] Grafana dashboards
+- [ ] Profiling de queries lentas
+- [ ] Worker threads para procesamiento paralelo
+
 ### Integraciones
 - [ ] Webhooks para eventos de trips/stops
 - [ ] GraphQL API como alternativa a REST
-- [ ] MQTT para IoT devices de baja latencia
 - [ ] Exportación a formatos (CSV, GeoJSON, KML)
 
 ### DevOps y Producción
 - [ ] Helm charts para Kubernetes
 - [ ] CI/CD con GitHub Actions
 - [ ] Automated tests en CI
-- [ ] Database migrations con TypeORM
+- [ ] Database migrations automatizadas
 - [ ] Backup automatizado de PostgreSQL
 - [ ] Disaster recovery procedures
-
-### Documentación
-- [ ] Guía de contribución (CONTRIBUTING.md)
-- [ ] Code of Conduct
-- [ ] Arquitectura detallada con diagramas (C4 model)
-- [ ] Tutoriales y ejemplos de uso
-- [ ] Video demos
 
 ## 🐛 Bugs Conocidos
 
@@ -197,11 +128,13 @@ Ninguno por el momento.
 
 ## 📝 Notas
 
-- **Prioridad Alta**: Fase 1 y Fase 2 son críticas para MVP funcional
-- **Prioridad Media**: Fase 3 para exponer funcionalidad vía API
-- **Prioridad Baja**: Fase 4 son optimizaciones para producción a escala
+- **Estado Actual**: MVP funcional para detección de trips y stops ✅
+- **Prioridad Alta**: Geocoding y Tests
+- **Prioridad Media**: Documentación y optimizaciones
+- **Prioridad Baja**: Funcionalidades avanzadas
 
 ---
 
-**Última actualización**: 2024-11-14
-**Versión actual**: 0.1.0
+**Última actualización**: 2025-11-15
+**Versión actual**: 0.2.0
+**Estado**: MVP completado - En producción lista con geocoding pendiente
