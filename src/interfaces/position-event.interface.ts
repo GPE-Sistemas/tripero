@@ -39,8 +39,9 @@ export interface IPositionEvent {
   /**
    * Estado de ignición del vehículo
    * CRÍTICO para detección de trips
+   * Si no se proporciona, se asume false
    */
-  ignition: boolean;
+  ignition?: boolean;
 
   // === OPCIONALES (mejoran precisión) ===
 
@@ -87,7 +88,8 @@ export const validatePositionEvent = (event: any): event is IPositionEvent => {
   if (typeof event.latitude !== 'number') return false;
   if (typeof event.longitude !== 'number') return false;
   if (typeof event.speed !== 'number') return false;
-  if (typeof event.ignition !== 'boolean') return false;
+  // ignition es opcional - si no viene, se asume false
+  if (event.ignition !== undefined && typeof event.ignition !== 'boolean') return false;
 
   // Validar rangos de latitud/longitud
   if (event.latitude < -90 || event.latitude > 90) return false;

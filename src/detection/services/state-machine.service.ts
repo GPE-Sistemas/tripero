@@ -139,7 +139,7 @@ export class StateMachineService {
       lastLat: position.latitude,
       lastLon: position.longitude,
       lastSpeed: position.speed,
-      lastIgnition: position.ignition,
+      lastIgnition: position.ignition ?? false,
       lastUpdate: Date.now(),
       version: 1,
       recentPositions: [
@@ -148,7 +148,7 @@ export class StateMachineService {
           lat: position.latitude,
           lon: position.longitude,
           speed: position.speed,
-          ignition: position.ignition,
+          ignition: position.ignition ?? false,
         },
       ],
     };
@@ -258,7 +258,7 @@ export class StateMachineService {
         lat: position.latitude,
         lon: position.longitude,
         speed: position.speed,
-        ignition: position.ignition,
+        ignition: position.ignition ?? false,
       },
     ];
 
@@ -280,7 +280,7 @@ export class StateMachineService {
       lastLat: position.latitude,
       lastLon: position.longitude,
       lastSpeed: position.speed,
-      lastIgnition: position.ignition,
+      lastIgnition: position.ignition ?? false,
       speedAvg30s,
       speedAvg1min,
       speedAvg5min,

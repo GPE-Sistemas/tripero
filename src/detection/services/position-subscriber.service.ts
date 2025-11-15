@@ -131,8 +131,14 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
         return;
       }
 
+      // Normalizar ignition a false si no viene
+      const normalizedPosition: IPositionEvent = {
+        ...position,
+        ignition: position.ignition ?? false,
+      };
+
       // Procesar la posición
-      await this.positionProcessor.processPosition(position as IPositionEvent);
+      await this.positionProcessor.processPosition(normalizedPosition);
     } catch (error) {
       this.logger.error(
         `Error handling position message: ${message}`,
