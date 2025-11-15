@@ -1,6 +1,6 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
   Index,
   CreateDateColumn,
@@ -10,7 +10,7 @@ import {
 @Index(['id_activo', 'start_time'])
 @Index(['start_time'])
 export class Trip {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'varchar', length: 255 })
   id: string;
 
   @Column({ type: 'timestamptz', name: 'start_time' })

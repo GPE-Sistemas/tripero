@@ -81,14 +81,12 @@ export class TripPersistenceService implements OnModuleInit {
       const [longitude, latitude] = event.startLocation.coordinates;
 
       await this.tripRepository.create({
+        id: event.tripId,
         id_activo: event.deviceId,
         start_time: new Date(event.startTime),
         start_lat: latitude,
         start_lon: longitude,
         detection_method: event.detectionMethod,
-        metadata: {
-          tripId: event.tripId,
-        },
       });
 
       this.logger.log(
