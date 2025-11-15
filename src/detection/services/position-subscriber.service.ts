@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { PositionProcessorService } from './position-processor.service';
+import { TrackerStateService } from './tracker-state.service';
 import { IPositionEvent, validatePositionEvent } from '../../interfaces';
 
 /**
@@ -20,6 +21,7 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
   constructor(
     private readonly redisService: RedisService,
     private readonly positionProcessor: PositionProcessorService,
+    private readonly trackerStateService: TrackerStateService,
   ) {}
 
   async onModuleInit() {
@@ -131,10 +133,22 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
         return;
       }
 
-      // Normalizar ignition a false si no viene
+      // Si no viene ignición, consultar último estado conocido
+      let ignition = position.ignition;
+
+      if (ignition === undefined) {
+        const trackerState = await this.trackerStateService.getState(position.deviceId);
+        ignition = trackerState?.lastIgnition ?? false;
+
+        this.logger.debug(
+          `Position without ignition, using last known: ${ignition} for ${position.deviceId}`,
+        );
+      }
+
+      // Normalizar posición con ignition
       const normalizedPosition: IPositionEvent = {
         ...position,
-        ignition: position.ignition ?? false,
+        ignition,
       };
 
       // Procesar la posición
