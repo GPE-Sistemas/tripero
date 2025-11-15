@@ -4,11 +4,11 @@
 
 ### Fase 0: Setup y Arquitectura Base
 - [x] Decisiones arquitectónicas documentadas (ARQUITECTURA.md)
-- [x] Configuración de TypeORM con TimescaleDB
+- [x] Configuración de TypeORM con PostgreSQL
 - [x] Entidades creadas (Trip, Stop)
 - [x] Repositorios implementados con métodos CRUD y estadísticas
 - [x] Servicios auxiliares (Redis, HTTP, Logger)
-- [x] Health checks (Redis + TimescaleDB)
+- [x] Health checks (Redis + PostgreSQL)
 - [x] Docker Compose para desarrollo local
 - [x] Dockerfile para producción
 - [x] Scripts de inicialización de base de datos
@@ -55,7 +55,7 @@ Ninguna tarea en progreso actualmente.
 #### 1.5 Testing
 - [ ] Unit tests para detección de estados
 - [ ] Unit tests para repositorios
-- [ ] Integration tests con Redis y TimescaleDB
+- [ ] Integration tests con Redis y PostgreSQL
 - [ ] Tests de casos edge (GPS loss, ignition flapping, etc.)
 
 ### Fase 2: Persistence Module (Escritura Batch)
@@ -69,20 +69,20 @@ Ninguna tarea en progreso actualmente.
 - [ ] Manejo de errores y retry
 
 #### 2.2 Gestión de Trips
-- [ ] Creación de trips en TimescaleDB
+- [ ] Creación de trips en PostgreSQL
 - [ ] Actualización de trips activos
 - [ ] Cierre de trips
 - [ ] Agregación de route_points
 - [ ] Cálculo de estadísticas (distance, avg_speed, max_speed)
 
 #### 2.3 Gestión de Stops
-- [ ] Creación de stops en TimescaleDB
+- [ ] Creación de stops en PostgreSQL
 - [ ] Actualización de stops activos
 - [ ] Cierre de stops
 - [ ] Contador de stops por trip
 
-#### 2.4 Optimizaciones TimescaleDB
-- [ ] Migración para crear hypertables
+#### 2.4 Optimizaciones PostgreSQL
+- [ ] Migración para crear tables
 - [ ] Configuración de compresión automática
 - [ ] Políticas de retención de datos
 - [ ] Índices optimizados para queries comunes
@@ -128,7 +128,7 @@ Ninguna tarea en progreso actualmente.
 ### Fase 4: Optimizaciones y Monitoreo (Opcional/Futuro)
 **Duración estimada: 2-3 semanas**
 
-#### 4.1 Continuous Aggregates (TimescaleDB)
+#### 4.1 Continuous Aggregates (PostgreSQL)
 - [ ] Vista materializada para estadísticas diarias
 - [ ] Vista materializada para estadísticas por hora
 - [ ] Refresh policies automáticas
@@ -175,7 +175,7 @@ Ninguna tarea en progreso actualmente.
 - [ ] CI/CD con GitHub Actions
 - [ ] Automated tests en CI
 - [ ] Database migrations con TypeORM
-- [ ] Backup automatizado de TimescaleDB
+- [ ] Backup automatizado de PostgreSQL
 - [ ] Disaster recovery procedures
 
 ### Documentación

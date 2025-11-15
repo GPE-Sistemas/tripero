@@ -74,7 +74,7 @@
 
 ---
 
-### ADR-002: TimescaleDB como Base de Datos Principal
+### ADR-002: PostgreSQL como Base de Datos Principal
 
 **Estado**: Aprobado
 
@@ -86,17 +86,17 @@
 - Storage puede crecer significativamente
 
 **Decisión**:
-Usar **TimescaleDB** (PostgreSQL + extensión para time-series) como base de datos principal.
+Usar **PostgreSQL** (PostgreSQL + extensión para time-series) como base de datos principal.
 
 **Razones**:
 
-| Criterio | MongoDB | PostgreSQL | TimescaleDB | Ganador |
+| Criterio | MongoDB | PostgreSQL | PostgreSQL | Ganador |
 |----------|---------|------------|-------------|---------|
-| Performance en time-series | 🟡 Bueno | 🟢 Muy bueno | 🟢🟢 Excelente | TimescaleDB |
-| Agregaciones (GROUP BY) | 🟡 Pipeline lento | 🟢 Nativo SQL | 🟢🟢 + Continuous aggs | TimescaleDB |
-| Storage efficiency | 🔴 15 GB | 🟡 12 GB | 🟢 2 GB (compresión) | TimescaleDB |
-| Queries complejos | 🟡 Pipeline | 🟢 SQL estándar | 🟢 SQL + funciones TS | TimescaleDB |
-| Retención de datos | 🔴 Manual | 🟡 Scripts | 🟢 Automática | TimescaleDB |
+| Performance en time-series | 🟡 Bueno | 🟢 Muy bueno | 🟢🟢 Excelente | PostgreSQL |
+| Agregaciones (GROUP BY) | 🟡 Pipeline lento | 🟢 Nativo SQL | 🟢🟢 + Continuous aggs | PostgreSQL |
+| Storage efficiency | 🔴 15 GB | 🟡 12 GB | 🟢 2 GB (compresión) | PostgreSQL |
+| Queries complejos | 🟡 Pipeline | 🟢 SQL estándar | 🟢 SQL + funciones TS | PostgreSQL |
+| Retención de datos | 🔴 Manual | 🟡 Scripts | 🟢 Automática | PostgreSQL |
 | Curva de aprendizaje | 🟢 Ya conocen | 🟢 SQL estándar | 🟢 PostgreSQL + extras | MongoDB/Postgres |
 
 **Benchmark real (10M trips)**:
@@ -105,13 +105,13 @@ Query: "Trips del último mes para activo X"
 
 MongoDB:      2-5 segundos
 PostgreSQL:   0.5-2 segundos
-TimescaleDB:  0.05-0.2 segundos  ⚡ 10-100x más rápido
+PostgreSQL:  0.05-0.2 segundos  ⚡ 10-100x más rápido
 ```
 
-**Features clave de TimescaleDB**:
+**Features clave de PostgreSQL**:
 ```sql
 -- 1. Hypertables: particionamiento automático por tiempo
-SELECT create_hypertable('trips', 'start_time');
+SELECT create_table('trips', 'start_time');
 
 -- 2. Compresión automática (90% ahorro)
 SELECT add_compression_policy('trips', INTERVAL '7 days');
@@ -121,7 +121,7 @@ SELECT add_retention_policy('trips', INTERVAL '2 years');
 
 -- 4. Continuous aggregates (pre-calculadas en background)
 CREATE MATERIALIZED VIEW daily_stats
-WITH (timescaledb.continuous) AS
+WITH (postgres.continuous) AS
 SELECT
   time_bucket('1 day', start_time) AS day,
   id_activo,
@@ -141,11 +141,11 @@ SELECT * FROM daily_stats WHERE day >= '2024-01-01';
 - ✅ Retención automática de datos
 - ✅ Compatible con PostgreSQL (migraciones fáciles)
 - ⚠️ Nuevo stack (pero es PostgreSQL con extensión)
-- ⚠️ Necesita setup de TimescaleDB en cluster
+- ⚠️ Necesita setup de PostgreSQL en cluster
 
 **Alternativas consideradas**:
 - **MongoDB**: Rechazado por performance inferior y storage ineficiente
-- **PostgreSQL vanilla**: Considerado, pero TimescaleDB agrega features críticos con mínimo esfuerzo adicional
+- **PostgreSQL vanilla**: Considerado, pero PostgreSQL agrega features críticos con mínimo esfuerzo adicional
 - **InfluxDB/Prometheus**: Rechazados, diseñados para métricas, no para datos estructurados complejos
 
 ---
@@ -168,7 +168,7 @@ Usar **Redis** para:
 
 **Razones**:
 - ✅ Ultra-rápido (< 1ms latencia)
-- ✅ Reduce writes a TimescaleDB en 99% (batch writes)
+- ✅ Reduce writes a PostgreSQL en 99% (batch writes)
 - ✅ PubSub integrado (desacoplamiento)
 - ✅ TTL automático (limpieza de estado viejo)
 - ✅ Ya usado en el sistema
@@ -218,7 +218,7 @@ persistence: RDB cada 15 min (no AOF, datos recuperables)
 - Si Redis cae: El servicio no puede funcionar
 - Recuperación: Estado se reconstruye desde última posición de cada tracker
 
-#### 2. TimescaleDB
+#### 2. PostgreSQL
 
 **Propósito**: Persistencia de trips y stops
 
@@ -226,7 +226,7 @@ persistence: RDB cada 15 min (no AOF, datos recuperables)
 
 **Conexión**:
 ```env
-DATABASE_HOST=timescaledb-service
+DATABASE_HOST=postgres-service
 DATABASE_PORT=5432
 DATABASE_NAME=gestion_trip
 DATABASE_USER=gestion_trip
@@ -242,7 +242,7 @@ DATABASE_SSL=false
 **Configuración recomendada**:
 ```sql
 -- Hypertable con chunks de 7 días
-SELECT create_hypertable('trips', 'start_time', chunk_time_interval => INTERVAL '7 days');
+SELECT create_table('trips', 'start_time', chunk_time_interval => INTERVAL '7 days');
 
 -- Compresión después de 7 días
 SELECT add_compression_policy('trips', INTERVAL '7 days');
@@ -252,7 +252,7 @@ SELECT add_retention_policy('trips', INTERVAL '2 years');
 ```
 
 **Tolerancia a fallos**:
-- Si TimescaleDB cae: Detección continúa, batch writes fallan y se encolan
+- Si PostgreSQL cae: Detección continúa, batch writes fallan y se encolan
 - Recuperación: Batch queue reintenta escrituras automáticamente
 
 ### Dependencias Opcionales (Soft Dependencies)
@@ -293,7 +293,7 @@ gestion-trip
 
 ## Modelo de Datos
 
-### TimescaleDB Schema
+### PostgreSQL Schema
 
 #### Tabla: trips
 
@@ -308,7 +308,7 @@ CREATE TABLE trips (
   id_cliente UUID NOT NULL,
   ids_ancestros UUID[],
 
-  -- Tiempo (hypertable dimension)
+  -- Tiempo (table dimension)
   start_time TIMESTAMPTZ NOT NULL,
   end_time TIMESTAMPTZ NOT NULL,
   duration INTEGER NOT NULL, -- segundos
@@ -356,8 +356,8 @@ CREATE TABLE trips (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Convertir a hypertable (particionamiento automático por tiempo)
-SELECT create_hypertable('trips', 'start_time',
+-- Convertir a table (particionamiento automático por tiempo)
+SELECT create_table('trips', 'start_time',
   chunk_time_interval => INTERVAL '7 days',
   if_not_exists => TRUE
 );
@@ -426,7 +426,7 @@ CREATE INDEX idx_tracker_state_tracker_id ON tracker_state(tracker_id);
 CREATE INDEX idx_tracker_state_last_seen ON tracker_state(last_seen_at DESC);
 ```
 
-**Nota**: Esta tabla NO es hypertable porque almacena el estado **actual** de cada tracker, no series temporales. Es una tabla de lookup rápido.
+**Nota**: Esta tabla NO es table porque almacena el estado **actual** de cada tracker, no series temporales. Es una tabla de lookup rápido.
 
 **Almacenamiento dual**:
 - **Redis**: Estado en tiempo real (TTL 7 días, actualizado con cada posición)
@@ -454,7 +454,7 @@ CREATE TABLE stops (
   id_cliente UUID NOT NULL,
   ids_ancestros UUID[],
 
-  -- Tiempo (hypertable dimension)
+  -- Tiempo (table dimension)
   start_time TIMESTAMPTZ NOT NULL,
   end_time TIMESTAMPTZ NOT NULL,
   duration INTEGER NOT NULL, -- segundos
@@ -484,8 +484,8 @@ CREATE TABLE stops (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Convertir a hypertable
-SELECT create_hypertable('stops', 'start_time',
+-- Convertir a table
+SELECT create_table('stops', 'start_time',
   chunk_time_interval => INTERVAL '7 days',
   if_not_exists => TRUE
 );
@@ -504,7 +504,7 @@ SELECT add_retention_policy('stops', INTERVAL '2 years');
 
 ```sql
 CREATE MATERIALIZED VIEW daily_stats
-WITH (timescaledb.continuous) AS
+WITH (postgres.continuous) AS
 SELECT
   time_bucket('1 day', start_time) AS day,
   id_activo,
@@ -674,7 +674,7 @@ Tripero NO debe depender de llamadas HTTP a otros servicios para obtener informa
   "timestamp": "2024-11-14T12:00:00Z",
   "services": {
     "redis": { "status": "up" },
-    "timescaledb": { "status": "up" }
+    "postgres": { "status": "up" }
   }
 }
 ```
@@ -690,7 +690,7 @@ Tripero NO debe depender de llamadas HTTP a otros servicios para obtener informa
 {
   "status": "ready",
   "redis": true,
-  "timescaledb": true
+  "postgres": true
 }
 ```
 
@@ -1098,14 +1098,14 @@ GET /trips/stats?idCliente=xxx&from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z
                                   │    (cada 5-10 segundos)      │
                                   │    • Agrupa 50-100 trips     │
                                   │    • INSERT batch a          │
-                                  │      TimescaleDB             │
+                                  │      PostgreSQL             │
                                   └──────────────────────────────┘
 ```
 
 **Latencias**:
 - Evento → Detección: < 100ms
 - Detección → Redis update: < 10ms
-- Trip completed → Persistido en TimescaleDB: < 10 segundos
+- Trip completed → Persistido en PostgreSQL: < 10 segundos
 
 ---
 
@@ -1127,14 +1127,14 @@ GET /trips/stats?idCliente=xxx&from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 3. Query a TimescaleDB                                               │
+│ 3. Query a PostgreSQL                                               │
 │    SELECT * FROM trips                                               │
 │    WHERE id_activo = $1                                             │
 │    AND start_time BETWEEN $2 AND $3                                │
 │    ORDER BY start_time DESC                                         │
 │    LIMIT $4 OFFSET $5;                                              │
 │                                                                      │
-│    Latencia: 50-200ms (optimizado por hypertable)                  │
+│    Latencia: 50-200ms (optimizado por table)                  │
 └────────────────────────┬────────────────────────────────────────────┘
                          │
                          ▼
@@ -1172,9 +1172,9 @@ GET /trips/stats?idCliente=xxx&from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z
 - Operaciones: 100k ops/seg → Nuestro uso: 200 ops/seg ✅
 - Memoria: 1 MB × 1,000 trackers = 1 GB → Redis soporta fácilmente ✅
 
-**TimescaleDB**:
+**PostgreSQL**:
 - Writes: 5-10k inserts/seg → Nuestro uso: 4 batch writes/seg ✅
-- Queries: < 100ms para 10M trips con hypertables ✅
+- Queries: < 100ms para 10M trips con tables ✅
 - Storage: 10M trips × 1 KB = 10 GB raw → 2 GB comprimido ✅
 
 **Pods**:
@@ -1197,7 +1197,7 @@ metrics:
 
 **Vertical (BD más grande)**:
 ```yaml
-# TimescaleDB
+# PostgreSQL
 resources:
   requests:
     memory: 4Gi
@@ -1232,7 +1232,7 @@ trip_detection_avg_trip_duration_seconds     // Histogram
 
 // System
 trip_detection_redis_operations_total        // Counter
-trip_detection_timescaledb_queries_total     // Counter
+trip_detection_postgres_queries_total     // Counter
 trip_detection_batch_writes_total            // Counter
 trip_detection_batch_size                    // Histogram
 
@@ -1264,9 +1264,9 @@ trip_detection_errors_total                  // Counter (label: error_type)
   for: 1m
   severity: critical
 
-# TimescaleDB down
-- alert: TimescaleDBTripDown
-  expr: trip_detection_timescaledb_up == 0
+# PostgreSQL down
+- alert: PostgreSQLTripDown
+  expr: trip_detection_postgres_up == 0
   for: 1m
   severity: critical
 
@@ -1290,7 +1290,7 @@ trip_detection_errors_total                  // Counter (label: error_type)
 | Decisión | Razón | Impacto |
 |----------|-------|---------|
 | **Microservicio independiente** | Desacoplamiento, resiliencia | ✅ Alto |
-| **TimescaleDB** | Performance 10-100x, storage 80% menos | ✅ Muy alto |
+| **PostgreSQL** | Performance 10-100x, storage 80% menos | ✅ Muy alto |
 | **Redis state + PubSub** | Reduce writes 99%, desacopla servicios | ✅ Alto |
 | **Batch writes (5-10 seg)** | Eficiencia, menos carga en BD | ✅ Alto |
 | **Event-driven integration** | Loose coupling, escalabilidad | ✅ Medio |

@@ -7,7 +7,7 @@ Guía para probar el sistema de detección de trips.
 ## Requisitos
 
 1. **Redis** corriendo en `localhost:6379`
-2. **TimescaleDB** corriendo en `localhost:5432` (opcional para esta fase)
+2. **PostgreSQL** corriendo en `localhost:5432` (opcional para esta fase)
 3. **Node.js 20+**
 
 ---
@@ -42,7 +42,7 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_DB=0
 
-# Database (TimescaleDB) - opcional para Fase 1
+# Database (PostgreSQL) - opcional para Fase 1
 DB_HOST=localhost
 DB_PORT=5432
 DB_SYNCHRONIZE=true  # Solo en desarrollo!
@@ -281,7 +281,7 @@ PUBLISH position:new '{"deviceId":"CAR-003","timestamp":1700000000000,"latitude"
 
 Una vez verificado que la Fase 1 funciona:
 
-1. **Fase 2**: Implementar persistencia en TimescaleDB (batch writes)
+1. **Fase 2**: Implementar persistencia en PostgreSQL (batch writes)
 2. **Fase 3**: Implementar API REST para consultas
 3. **Testing Automatizado**: Escribir tests unitarios y e2e
 

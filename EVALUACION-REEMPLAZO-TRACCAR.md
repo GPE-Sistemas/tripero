@@ -123,7 +123,7 @@ Redis PubSub (position:new)
      ↓
 Tripero (detección automática en tiempo real)
      ↓
-PostgreSQL/TimescaleDB
+PostgreSQL/PostgreSQL
      ↓
 Nominatim (geocoding)
      ↓
@@ -139,7 +139,7 @@ IRIX Web/Mobile (sin cambios)
 - ✅ Stack 100% TypeScript/Node.js
 - ✅ Control total de la lógica
 - ✅ Persistencia automática en tiempo real
-- ✅ PostgreSQL/TimescaleDB optimizado
+- ✅ PostgreSQL/PostgreSQL optimizado
 - ✅ APIs compatibles (migración transparente)
 - ✅ Single source of truth
 
@@ -178,7 +178,7 @@ IRIX Web/Mobile (sin cambios)
 - ✅ Lógica customizable para IRIX
 - ✅ Single source of truth (PostgreSQL)
 - ✅ Persistencia automática
-- ✅ Optimizado para time-series (TimescaleDB)
+- ✅ Optimizado para time-series (PostgreSQL)
 - ✅ Costos reducidos (sin licencias)
 - ✅ Mejor escalabilidad
 
@@ -233,7 +233,7 @@ Para que Tripero reemplace completamente a Traccar:
    - Stack unificado TypeScript
    - Control total del código
    - Persistencia automática mejor que on-demand
-   - PostgreSQL/TimescaleDB > caja negra Traccar
+   - PostgreSQL/PostgreSQL > caja negra Traccar
 
 3. **Riesgo Bajo**
    - APIs 100% compatibles

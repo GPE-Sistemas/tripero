@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  timescaledb:
-    image: timescale/timescaledb:latest-pg16
-    container_name: tripero-timescaledb
+  postgres:
+    image: postgres:16-alpine
+    container_name: tripero-postgres
     ports:
       - "5432:5432"
     environment:
@@ -11,8 +11,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: tripero
     volumes:
-      - timescaledb-data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -33,5 +32,5 @@ services:
       retries: 5
 
 volumes:
-  timescaledb-data:
+  postgres-data:
   redis-data:

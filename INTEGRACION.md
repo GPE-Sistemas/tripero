@@ -10,7 +10,7 @@ Tripero es un microservicio **completamente independiente** que:
 
 ✅ **NO depende** de otros servicios para funcionar
 ✅ **NO hace** llamadas HTTP a otros servicios para obtener datos
-✅ Solo depende de **Redis** (PubSub + Cache) y **TimescaleDB** (persistencia)
+✅ Solo depende de **Redis** (PubSub + Cache) y **PostgreSQL** (persistencia)
 
 ---
 
@@ -255,7 +255,7 @@ GET /stops/:id           - Obtener stop específico
     │ 6. Detecta trip/stop   │
     │                        │
     │ 7. Guarda en           │
-    │    TimescaleDB         │
+    │    PostgreSQL         │
     └────────┬───────────────┘
              │
              │ Redis PubSub
@@ -348,7 +348,7 @@ Tripero puede escalar horizontalmente:
 
 1. **Múltiples instancias**: Cada instancia procesa eventos independientemente
 2. **Redis Cluster**: Para alta disponibilidad de PubSub
-3. **TimescaleDB**: Soporta sharding para grandes volúmenes
+3. **PostgreSQL**: Soporta sharding para grandes volúmenes
 
 ### Monitoreo
 
@@ -358,7 +358,7 @@ Métricas clave a monitorear:
 - Rate de eventos `trip:started/completed` publicados
 - Latencia de procesamiento
 - Errores de validación
-- Conexiones a Redis y TimescaleDB
+- Conexiones a Redis y PostgreSQL
 
 ---
 

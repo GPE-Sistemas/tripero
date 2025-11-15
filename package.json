@@ -1,7 +1,7 @@
 {
   "name": "tripero",
   "version": "0.1.0",
-  "description": "GPS trip detection and stop analysis microservice with TimescaleDB and Redis",
+  "description": "GPS trip detection and stop analysis microservice with PostgreSQL and Redis",
   "author": "GPE Sistemas",
   "private": false,
   "license": "MIT",
@@ -10,7 +10,7 @@
     "tracking",
     "trip-detection",
     "stop-detection",
-    "timescaledb",
+    "postgresql",
     "redis",
     "nestjs",
     "microservice",

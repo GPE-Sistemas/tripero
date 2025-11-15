@@ -329,8 +329,8 @@ CREATE INDEX idx_stops_start_time ON stops(start_time);
 CREATE INDEX idx_stops_id_activo_start_time ON stops(id_activo, start_time);
 CREATE INDEX idx_stops_is_active ON stops(is_active);
 
--- Convertir a hypertable para TimescaleDB
-SELECT create_hypertable('stops', 'start_time');
+-- Convertir a table para PostgreSQL
+SELECT create_table('stops', 'start_time');
 ```
 
 ## Testing
