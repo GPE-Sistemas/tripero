@@ -321,7 +321,7 @@ export class TrackerStateService {
   /**
    * Obtiene estado desde Redis o PostgreSQL
    */
-  private async getState(trackerId: string): Promise<ITrackerState | null> {
+  async getState(trackerId: string): Promise<ITrackerState | null> {
     // Intentar desde Redis primero
     let state = await this.getStateFromRedis(trackerId);
 
@@ -514,5 +514,51 @@ export class TrackerStateService {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c; // Distancia en metros
+  }
+
+  /**
+   * Actualiza solo el estado de ignición de un tracker
+   * Usado cuando recibimos eventos de ignición separados (ej: GPS103 ACC events)
+   */
+  async updateIgnition(
+    deviceId: string,
+    ignition: boolean,
+    timestamp: number,
+  ): Promise<void> {
+    try {
+      let state = await this.getState(deviceId);
+
+      // Si no existe, crear estado inicial
+      if (!state) {
+        state = this.createInitialState(deviceId);
+        this.logger.log(`Creating new tracker state for ${deviceId}`);
+      }
+
+      // Actualizar ignición
+      const previousIgnition = state.lastIgnition;
+      state.lastIgnition = ignition;
+      state.lastSeenAt = new Date();
+      state.updatedAt = new Date();
+
+      // Si hay timestamp, actualizar también el tiempo de posición
+      if (timestamp) {
+        state.lastPositionTime = new Date(timestamp);
+      }
+
+      // Guardar en Redis
+      await this.saveStateToRedis(deviceId, state);
+
+      // Persistir en BD inmediatamente (eventos de ignición son críticos)
+      await this.persistToDb(state);
+
+      this.logger.log(
+        `Ignition updated for ${deviceId}: ${previousIgnition ?? 'unknown'} → ${ignition}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error updating ignition for ${deviceId}`,
+        error.stack,
+      );
+    }
   }
 }

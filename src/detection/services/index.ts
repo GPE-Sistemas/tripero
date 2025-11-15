@@ -3,6 +3,7 @@ export * from './device-state.service';
 export * from './event-publisher.service';
 export * from './position-processor.service';
 export * from './position-subscriber.service';
+export * from './ignition-subscriber.service';
 export * from './tracker-state.service';
 export * from './trip-persistence.service';
 export * from './stop-persistence.service';
