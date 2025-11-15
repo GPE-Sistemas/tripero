@@ -3,7 +3,6 @@ import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { PositionProcessorService } from './position-processor.service';
 import { IPositionEvent, validatePositionEvent } from '../../interfaces';
-import { TRIP_DETECTION_ENABLED } from '../../env';
 
 /**
  * Servicio de suscripción a eventos de posiciones GPS
@@ -24,11 +23,6 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
   ) {}
 
   async onModuleInit() {
-    if (!TRIP_DETECTION_ENABLED) {
-      this.logger.warn('Trip detection is DISABLED');
-      return;
-    }
-
     this.logger.log('Initializing position subscriber...');
     await this.subscribe();
 

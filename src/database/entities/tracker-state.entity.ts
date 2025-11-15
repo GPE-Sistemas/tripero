@@ -82,7 +82,6 @@ export class TrackerState {
   first_seen_at: Date;
 
   @Column({ type: 'timestamptz', name: 'last_seen_at' })
-  @Index()
   last_seen_at: Date;
 
   // Timestamps

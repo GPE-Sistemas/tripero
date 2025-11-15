@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![NestJS](https://img.shields.io/badge/NestJS-10.0-red.svg)](https://nestjs.com/)
-[![TimescaleDB](https://img.shields.io/badge/TimescaleDB-2.14-orange.svg)](https://www.timescale.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
 
 [Features](#-features) • [Quick Start](#-quick-start) • [API Docs](#-api-documentation) • [Architecture](#-architecture) • [Contributing](#-contributing)
 
@@ -25,7 +25,7 @@
 
 - **🎯 Precise Detection**: Advanced state machine with configurable thresholds for accurate trip/stop detection
 - **⚡ Real-time Processing**: Event-driven architecture with Redis pub/sub for instant analysis
-- **📊 Time-series Optimized**: TimescaleDB hypertables for efficient storage and querying of historical data
+- **📊 Optimized Storage**: PostgreSQL with time-indexed queries for efficient historical data access
 - **🔄 Dual State Management**: Redis for real-time state + PostgreSQL for persistence
 - **📈 Production Ready**: Built-in health checks, metrics, and Kubernetes deployment support
 - **🛠️ Traccar Compatible**: Drop-in replacement with compatible API endpoints
@@ -64,7 +64,7 @@
   - Throttling to handle high-frequency GPS updates
   - State persistence with automatic sync (every 100 positions or hourly)
   - Event-driven architecture for extensibility
-  - Automatic data compression and retention policies (TimescaleDB)
+  - Optimized indexes for fast time-based queries
 
 ---
 
@@ -94,28 +94,19 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
-4. **Start infrastructure services** (TimescaleDB + Redis):
+4. **Start infrastructure services** (PostgreSQL + Redis):
 ```bash
 docker-compose up -d
 ```
 
-5. **Wait for services to be ready**:
-```bash
-docker-compose logs -f timescaledb
-# Wait until you see "database system is ready to accept connections"
-```
-
-6. **Initialize database** (only needed once):
-```bash
-docker exec -it tripero-timescaledb psql -U postgres -d tripero -f /docker-entrypoint-initdb.d/init-db.sql
-```
-
-7. **Start the application**:
+5. **Start the application**:
 ```bash
 npm run start:dev
 ```
 
-8. **Verify it's running**:
+The database will be automatically initialized on first run.
+
+6. **Verify it's running**:
 ```bash
 curl http://localhost:3001/health
 ```
@@ -126,8 +117,8 @@ You should see:
   "status": "ok",
   "timestamp": "2024-11-14T23:00:00.000Z",
   "services": {
-    "redis": "healthy",
-    "timescaledb": "healthy"
+    "redis": { "status": "up" },
+    "database": { "status": "up" }
   }
 }
 ```
@@ -378,7 +369,7 @@ Tripero subscribes to the Redis channel `position:new` for incoming GPS position
          │           │           │
          ▼           ▼           ▼
     ┌────────┐ ┌──────────┐ ┌────────┐
-    │ Redis  │ │TimescaleDB│ │ Event  │
+    │ Redis  │ │PostgreSQL│ │ Event  │
     │(Cache &│ │(Persistent│ │Consumers│
     │ State) │ │  Storage) │ │(External)│
     └────────┘ └──────────┘ └────────┘
@@ -406,7 +397,7 @@ Tripero subscribes to the Redis channel `position:new` for incoming GPS position
    - Enables event-driven integration with external systems
 
 5. **Persistence Services** (`trip-persistence.service.ts`, `stop-persistence.service.ts`)
-   - Listen to trip/stop events and persist to TimescaleDB
+   - Listen to trip/stop events and persist to PostgreSQL
    - Manage trip/stop lifecycle (create, update, complete)
 
 ### Data Flow
@@ -419,7 +410,7 @@ Tripero subscribes to the Redis channel `position:new` for incoming GPS position
    - State machine processing
    - State persistence
    - Event publishing
-4. **Persistence Services** → React to events and persist to TimescaleDB
+4. **Persistence Services** → React to events and persist to PostgreSQL
 5. **API Layer** → Serves historical and real-time data
 
 ---
@@ -428,16 +419,14 @@ Tripero subscribes to the Redis channel `position:new` for incoming GPS position
 
 ### Tables
 
-**trips** (TimescaleDB hypertable)
+**trips** (PostgreSQL table)
 - Stores completed trips with start/end times, distance, duration, speeds
-- Partitioned by `start_time` for efficient time-series queries
-- Automatic compression after 7 days
-- Retention policy: 365 days
+- Indexed by `(id_activo, start_time)` and `(start_time)` for efficient time-series queries
 
-**stops** (TimescaleDB hypertable)
+**stops** (PostgreSQL table)
 - Stores stops with location, duration, and reason
 - Linked to trips via `trip_id`
-- Same compression and retention as trips
+- Indexed by `(id_activo, start_time)` for efficient queries
 
 **tracker_state**
 - Current state of each tracker
@@ -462,13 +451,13 @@ Optimized for common query patterns:
 PORT=3001
 NODE_ENV=development
 
-# Database (TimescaleDB)
+# Database (PostgreSQL)
 DB_HOST=localhost
 DB_PORT=5432
 DB_USERNAME=postgres
 DB_PASSWORD=postgres
 DB_DATABASE=tripero
-DB_SYNCHRONIZE=true  # Only in development!
+DB_LOGGING=false  # Enable SQL query logging for debugging
 
 # Redis
 REDIS_HOST=localhost
@@ -588,7 +577,7 @@ docker-compose exec redis redis-cli GET tracker:state:TEST-001
 ### Query database directly
 
 ```bash
-docker-compose exec timescaledb psql -U postgres -d tripero
+docker-compose exec postgres psql -U postgres -d tripero
 ```
 
 ```sql
@@ -727,7 +716,7 @@ async function publishPosition(deviceId, gpsData) {
 - [x] Odometer calculation and accumulation
 - [x] Tracker state management
 - [x] Event-driven architecture
-- [x] TimescaleDB integration
+- [x] PostgreSQL integration
 - [x] Traccar-compatible API
 
 ### 🚧 Phase 1: Enhancements (Planned)
@@ -791,7 +780,7 @@ in the Software without restriction...
 ## 🙏 Acknowledgments
 
 - **NestJS** - Framework for building efficient server-side applications
-- **TimescaleDB** - Time-series database for IoT and GPS data
+- **PostgreSQL** - Time-series database for IoT and GPS data
 - **Traccar** - Inspiration for API compatibility
 - **GPE Sistemas** - Development and maintenance
 

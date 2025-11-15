@@ -23,7 +23,6 @@ export class Stop {
   id_activo: string;
 
   @Column({ type: 'timestamptz', name: 'start_time' })
-  @Index()
   start_time: Date;
 
   @Column({ type: 'timestamptz', name: 'end_time', nullable: true })

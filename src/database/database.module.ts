@@ -10,7 +10,6 @@ import {
 } from '../env';
 import { Trip, Stop, TrackerState } from './entities';
 import { TripRepository, StopRepository, TrackerStateRepository } from './repositories';
-import { DatabaseInitService } from './services/database-init.service';
 
 @Module({
   imports: [
@@ -24,7 +23,6 @@ import { DatabaseInitService } from './services/database-init.service';
       entities: [Trip, Stop, TrackerState],
       synchronize: true, // TypeORM auto-crea/actualiza tablas
       logging: DB_LOGGING,
-      // Opciones adicionales para TimescaleDB
       extra: {
         max: 20, // pool size máximo
         connectionTimeoutMillis: 5000,
@@ -37,7 +35,6 @@ import { DatabaseInitService } from './services/database-init.service';
     TripRepository,
     StopRepository,
     TrackerStateRepository,
-    DatabaseInitService,
   ],
   exports: [TypeOrmModule, TripRepository, StopRepository, TrackerStateRepository],
 })

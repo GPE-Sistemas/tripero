@@ -59,9 +59,6 @@ temp
 *.sql
 !init-db.sql
 
-# Misc
+# Misc (keep build config files)
 .prettierrc
 .eslintrc.js
-tsconfig.json
-tsconfig.build.json
-nest-cli.json

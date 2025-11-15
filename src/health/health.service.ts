@@ -81,17 +81,9 @@ export class HealthService {
       // Verificar conexión ejecutando una query simple
       const result = await this.connection.query('SELECT NOW() as now');
 
-      // Verificar si TimescaleDB está instalado
-      const timescaleCheck = await this.connection.query(
-        "SELECT default_version FROM pg_available_extensions WHERE name = 'timescaledb'"
-      );
-
-      const isTimescaleDB = timescaleCheck.length > 0;
-
       return {
         message: 'Database is healthy',
         connected: true,
-        timescaledb: isTimescaleDB,
         serverTime: result[0].now,
       };
     } catch (error) {
