@@ -1,6 +1,6 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
   Index,
   CreateDateColumn,
@@ -11,10 +11,10 @@ import {
 @Index(['id_activo', 'start_time'])
 @Index(['start_time'])
 export class Stop {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'varchar', length: 255 })
   id: string;
 
-  @Column({ type: 'uuid', name: 'trip_id', nullable: true })
+  @Column({ type: 'varchar', length: 255, name: 'trip_id', nullable: true })
   @Index()
   trip_id: string | null;
 

@@ -4,6 +4,7 @@ import { Repository, Between, LessThanOrEqual } from 'typeorm';
 import { Stop } from '../entities/stop.entity';
 
 export interface ICreateStopData {
+  id: string;
   id_activo: string;
   start_time: Date;
   latitude: number;
