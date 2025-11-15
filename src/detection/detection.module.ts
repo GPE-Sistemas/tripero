@@ -8,6 +8,8 @@ import {
   PositionProcessorService,
   PositionSubscriberService,
   TrackerStateService,
+  TripPersistenceService,
+  StopPersistenceService,
 } from './services';
 
 @Module({
@@ -19,6 +21,8 @@ import {
     PositionProcessorService,
     PositionSubscriberService,
     TrackerStateService,
+    TripPersistenceService,
+    StopPersistenceService,
   ],
   exports: [
     StateMachineService,
@@ -27,6 +31,8 @@ import {
     PositionProcessorService,
     PositionSubscriberService,
     TrackerStateService,
+    TripPersistenceService,
+    StopPersistenceService,
   ],
 })
 export class DetectionModule {}

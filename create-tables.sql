@@ -1,18 +1,14 @@
--- Inicialización de base de datos para Tripero
--- Este script crea las tablas y configura TimescaleDB
+-- Crear tablas para Tripero
 
--- Habilitar extensiones
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
--- Crear tablas para Tripero
-
 -- Tabla trips
 CREATE TABLE IF NOT EXISTS trips (
-  id UUID DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   start_time TIMESTAMPTZ NOT NULL,
   end_time TIMESTAMPTZ,
-  id_activo TEXT NOT NULL,
+  id_activo VARCHAR(255) NOT NULL,
   distance DOUBLE PRECISION NOT NULL DEFAULT 0,
   max_speed DOUBLE PRECISION NOT NULL DEFAULT 0,
   avg_speed DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -29,20 +25,19 @@ CREATE TABLE IF NOT EXISTS trips (
   detection_method TEXT NOT NULL DEFAULT 'ignition',
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (id, start_time)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_trips_id ON trips(id);
+CREATE INDEX IF NOT EXISTS idx_trips_start_time ON trips(start_time);
 CREATE INDEX IF NOT EXISTS idx_trips_id_activo ON trips(id_activo);
 CREATE INDEX IF NOT EXISTS idx_trips_is_active ON trips(is_active);
 CREATE INDEX IF NOT EXISTS idx_trips_id_activo_start_time ON trips(id_activo, start_time);
 
 -- Tabla stops
 CREATE TABLE IF NOT EXISTS stops (
-  id UUID DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   trip_id UUID,
-  id_activo TEXT NOT NULL,
+  id_activo VARCHAR(255) NOT NULL,
   start_time TIMESTAMPTZ NOT NULL,
   end_time TIMESTAMPTZ,
   duration INTEGER NOT NULL DEFAULT 0,
@@ -53,12 +48,11 @@ CREATE TABLE IF NOT EXISTS stops (
   is_active BOOLEAN NOT NULL DEFAULT true,
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (id, start_time)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_stops_id ON stops(id);
 CREATE INDEX IF NOT EXISTS idx_stops_trip_id ON stops(trip_id);
+CREATE INDEX IF NOT EXISTS idx_stops_start_time ON stops(start_time);
 CREATE INDEX IF NOT EXISTS idx_stops_id_activo ON stops(id_activo);
 CREATE INDEX IF NOT EXISTS idx_stops_is_active ON stops(is_active);
 CREATE INDEX IF NOT EXISTS idx_stops_id_activo_start_time ON stops(id_activo, start_time);
@@ -94,29 +88,3 @@ CREATE TABLE IF NOT EXISTS tracker_state (
 
 CREATE INDEX IF NOT EXISTS idx_tracker_state_tracker_id ON tracker_state(tracker_id);
 CREATE INDEX IF NOT EXISTS idx_tracker_state_last_seen ON tracker_state(last_seen_at DESC);
-
--- Convertir trips y stops en hypertables para optimización de time-series
-SELECT create_hypertable('trips', 'start_time', if_not_exists => TRUE);
-SELECT create_hypertable('stops', 'start_time', if_not_exists => TRUE);
-
--- Configurar compresión automática en trips (datos mayores a 7 días)
-ALTER TABLE trips SET (
-  timescaledb.compress,
-  timescaledb.compress_segmentby = 'id_activo',
-  timescaledb.compress_orderby = 'start_time DESC'
-);
-
--- Configurar compresión automática en stops (datos mayores a 7 días)
-ALTER TABLE stops SET (
-  timescaledb.compress,
-  timescaledb.compress_segmentby = 'id_activo',
-  timescaledb.compress_orderby = 'start_time DESC'
-);
-
--- Política de compresión: comprimir datos más viejos de 7 días
-SELECT add_compression_policy('trips', INTERVAL '7 days');
-SELECT add_compression_policy('stops', INTERVAL '7 days');
-
--- Política de retención: eliminar datos más viejos de 365 días
-SELECT add_retention_policy('trips', INTERVAL '365 days');
-SELECT add_retention_policy('stops', INTERVAL '365 days');

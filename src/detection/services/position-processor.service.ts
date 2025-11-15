@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IPositionEvent, ITripStartedEvent, ITripCompletedEvent } from '../../interfaces';
+import {
+  IPositionEvent,
+  ITripStartedEvent,
+  ITripCompletedEvent,
+  IStopStartedEvent,
+  IStopCompletedEvent
+} from '../../interfaces';
 import { StateMachineService } from './state-machine.service';
 import { DeviceStateService } from './device-state.service';
 import { EventPublisherService } from './event-publisher.service';
@@ -193,17 +199,86 @@ export class PositionProcessorService {
 
       // Iniciar stop
       if (actions.startStop) {
-        // TODO: Implementar en siguiente iteración
+        // Generar ID único para el stop
+        const stopId = `stop_${position.deviceId}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+        // Determinar razón del stop
+        let reason: 'ignition_off' | 'no_movement' | 'parking' = 'no_movement';
+        if (!position.ignition) {
+          reason = 'ignition_off';
+        } else if (position.speed === 0) {
+          reason = 'parking';
+        }
+
+        const event: IStopStartedEvent = {
+          stopId,
+          tripId: updatedState.currentTripId,
+          deviceId: position.deviceId,
+          startTime: new Date(position.timestamp).toISOString(),
+          location: {
+            type: 'Point',
+            coordinates: [position.longitude, position.latitude],
+          },
+          reason,
+        };
+
+        await this.eventPublisher.publishStopStarted(event);
+
+        // Guardar info del stop en el estado para cuando se complete
+        updatedState.currentStopId = stopId;
+        updatedState.stopStartTime = position.timestamp;
+        updatedState.stopStartLat = position.latitude;
+        updatedState.stopStartLon = position.longitude;
+        updatedState.stopReason = reason;
+        await this.deviceState.saveDeviceState(updatedState);
+
         this.logger.debug(
-          `Stop started for device ${position.deviceId} (not implemented yet)`,
+          `Stop ${stopId} started for device ${position.deviceId} (reason: ${reason})`,
         );
       }
 
       // Finalizar stop
-      if (actions.endStop && updatedState.currentTripId) {
+      if (actions.endStop && updatedState.currentStopId) {
+        const stopDuration =
+          (position.timestamp - updatedState.stopStartTime) / 1000;
+
+        const event: IStopCompletedEvent = {
+          stopId: updatedState.currentStopId,
+          tripId: updatedState.currentTripId,
+          deviceId: position.deviceId,
+          startTime: new Date(updatedState.stopStartTime).toISOString(),
+          endTime: new Date(position.timestamp).toISOString(),
+          duration: Math.round(stopDuration),
+          location: {
+            type: 'Point',
+            coordinates: [
+              updatedState.stopStartLon,
+              updatedState.stopStartLat,
+            ],
+          },
+          // address: undefined, // Geocoding será manejado por servicio externo
+          reason: updatedState.stopReason || 'no_movement',
+        };
+
+        await this.eventPublisher.publishStopCompleted(event);
+
         // Incrementar contador de stops en el trip
-        updatedState.tripStopsCount = (updatedState.tripStopsCount || 0) + 1;
+        if (updatedState.currentTripId) {
+          updatedState.tripStopsCount = (updatedState.tripStopsCount || 0) + 1;
+        }
+
+        // Limpiar datos del stop
+        updatedState.currentStopId = undefined;
+        updatedState.stopStartTime = undefined;
+        updatedState.stopStartLat = undefined;
+        updatedState.stopStartLon = undefined;
+        updatedState.stopReason = undefined;
+
         await this.deviceState.saveDeviceState(updatedState);
+
+        this.logger.debug(
+          `Stop ${event.stopId} completed for device ${position.deviceId}: ${event.duration}s`,
+        );
       }
     } catch (error) {
       this.logger.error(

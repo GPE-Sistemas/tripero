@@ -6,15 +6,16 @@ import { HealthModule } from './health/health.module';
 import { DatabaseModule } from './database/database.module';
 import { DetectionModule } from './detection/detection.module';
 import { TrackersModule } from './trackers/trackers.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
     DatabaseModule,
     AuxiliaresModule,
     HealthModule,
-    DetectionModule, // Fase 1: Trip detection
+    DetectionModule, // Fase 1: Trip/Stop detection
     TrackersModule, // Gestión de estado y odómetro de trackers
-    // PersistenceModule, // TODO: Fase 2
+    ReportsModule, // API de reportes históricos (compatible con Traccar)
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -4,12 +4,12 @@ import { Repository, Between, LessThanOrEqual } from 'typeorm';
 import { Stop } from '../entities/stop.entity';
 
 export interface ICreateStopData {
-  trip_id: string;
   id_activo: string;
   start_time: Date;
-  lat: number;
-  lon: number;
-  stop_type?: string;
+  latitude: number;
+  longitude: number;
+  reason?: string;
+  trip_id?: string;
   metadata?: Record<string, any>;
 }
 
@@ -83,6 +83,15 @@ export class StopRepository {
     return await this.stopRepo.find({
       where: {
         id_activo,
+        start_time: Between(startTime, endTime),
+      },
+      order: { start_time: 'DESC' },
+    });
+  }
+
+  async findByTimeRange(startTime: Date, endTime: Date): Promise<Stop[]> {
+    return await this.stopRepo.find({
+      where: {
         start_time: Between(startTime, endTime),
       },
       order: { start_time: 'DESC' },

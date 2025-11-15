@@ -82,6 +82,31 @@ export class StateMachineService {
       updatedState.tripStopsCount = 0;
     }
 
+    // Finalizar stop si es necesario
+    if (actions.endStop && updatedState.currentStopId) {
+      // Incrementar contador de stops si estamos dentro de un trip
+      if (updatedState.currentTripId) {
+        updatedState.tripStopsCount = (updatedState.tripStopsCount || 0) + 1;
+      }
+
+      // Limpiar estado de stop
+      updatedState.currentStopId = undefined;
+      updatedState.stopStartTime = undefined;
+      updatedState.stopStartLat = undefined;
+      updatedState.stopStartLon = undefined;
+      updatedState.stopReason = undefined;
+    }
+
+    // Inicializar stop si es necesario
+    if (actions.startStop) {
+      const stopReason = this.determineStopReason(newState, position);
+      updatedState.currentStopId = this.generateStopId(position.deviceId);
+      updatedState.stopStartTime = position.timestamp;
+      updatedState.stopStartLat = position.latitude;
+      updatedState.stopStartLon = position.longitude;
+      updatedState.stopReason = stopReason;
+    }
+
     const reason = this.getTransitionReason(position, previousState, newState);
 
     return {
@@ -132,7 +157,7 @@ export class StateMachineService {
       startTrip: state === MotionState.MOVING,
       updateTrip: false,
       endTrip: false,
-      startStop: false,
+      startStop: state === MotionState.STOPPED || state === MotionState.IDLE,
       endStop: false,
     };
 
@@ -144,6 +169,15 @@ export class StateMachineService {
       deviceState.tripDistance = 0;
       deviceState.tripMaxSpeed = position.speed;
       deviceState.tripStopsCount = 0;
+    }
+
+    if (actions.startStop) {
+      const stopReason = this.determineStopReason(state, position);
+      deviceState.currentStopId = this.generateStopId(position.deviceId);
+      deviceState.stopStartTime = position.timestamp;
+      deviceState.stopStartLat = position.latitude;
+      deviceState.stopStartLon = position.longitude;
+      deviceState.stopReason = stopReason;
     }
 
     return {
@@ -296,9 +330,14 @@ export class StateMachineService {
       newState === MotionState.MOVING
     ) {
       actions.startTrip = true;
+
+      // Si había un stop activo, finalizarlo
+      if (updatedState.currentStopId) {
+        actions.endStop = true;
+      }
     }
 
-    // MOVING → STOPPED: Finalizar trip (si cumple duración/distancia mínima)
+    // MOVING → STOPPED: Finalizar trip e iniciar stop
     if (previousState === MotionState.MOVING && newState === MotionState.STOPPED) {
       const tripDuration =
         (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) / 1000;
@@ -319,9 +358,12 @@ export class StateMachineService {
         );
         actions.endTrip = true; // Cerrar de todos modos pero sin guardar
       }
+
+      // Iniciar stop por ignición OFF
+      actions.startStop = true;
     }
 
-    // MOVING → IDLE: Iniciar stop (dentro de trip)
+    // MOVING → IDLE: Iniciar stop (dentro de trip, motor encendido pero sin movimiento)
     if (previousState === MotionState.MOVING && newState === MotionState.IDLE) {
       actions.startStop = true;
     }
@@ -329,6 +371,22 @@ export class StateMachineService {
     // IDLE → MOVING: Finalizar stop
     if (previousState === MotionState.IDLE && newState === MotionState.MOVING) {
       actions.endStop = true;
+    }
+
+    // IDLE → STOPPED: Finalizar stop actual e iniciar nuevo stop por ignición OFF
+    if (previousState === MotionState.IDLE && newState === MotionState.STOPPED) {
+      if (updatedState.currentStopId) {
+        actions.endStop = true;
+      }
+      actions.startStop = true;
+    }
+
+    // STOPPED → IDLE: Finalizar stop de ignición e iniciar stop de IDLE
+    if (previousState === MotionState.STOPPED && newState === MotionState.IDLE) {
+      if (updatedState.currentStopId) {
+        actions.endStop = true;
+      }
+      actions.startStop = true;
     }
 
     // MOVING: Actualizar trip en curso
@@ -419,6 +477,34 @@ export class StateMachineService {
    */
   private generateTripId(deviceId: string): string {
     return `trip_${deviceId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Genera ID único para stop
+   */
+  private generateStopId(deviceId: string): string {
+    return `stop_${deviceId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Determina la razón del stop basándose en el estado y la posición
+   */
+  private determineStopReason(
+    state: MotionState,
+    position: IPositionEvent,
+  ): 'ignition_off' | 'no_movement' | 'parking' {
+    // Si ignición OFF → parada por ignición apagada
+    if (!position.ignition) {
+      return 'ignition_off';
+    }
+
+    // Si ignición ON pero sin movimiento → parada por falta de movimiento (ej: semáforo, tráfico)
+    if (state === MotionState.IDLE) {
+      return 'no_movement';
+    }
+
+    // Por defecto, parking
+    return 'parking';
   }
 
   /**

@@ -52,6 +52,13 @@ export interface IDeviceMotionState {
   tripMaxSpeed?: number; // km/h
   tripStopsCount?: number;
 
+  // Stop actual (si existe)
+  currentStopId?: string;
+  stopStartTime?: number;
+  stopStartLat?: number;
+  stopStartLon?: number;
+  stopReason?: 'ignition_off' | 'no_movement' | 'parking';
+
   // Última posición
   lastTimestamp: number;
   lastLat: number;

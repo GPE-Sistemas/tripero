@@ -14,11 +14,11 @@ export class Stop {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid', name: 'trip_id' })
+  @Column({ type: 'uuid', name: 'trip_id', nullable: true })
   @Index()
-  trip_id: string;
+  trip_id: string | null;
 
-  @Column({ type: 'uuid', name: 'id_activo' })
+  @Column({ type: 'varchar', length: 255, name: 'id_activo' })
   @Index()
   id_activo: string;
 
@@ -32,21 +32,21 @@ export class Stop {
   @Column({ type: 'int', default: 0 })
   duration: number;
 
-  @Column({ type: 'float8' })
-  lat: number;
+  @Column({ type: 'float8', name: 'latitude' })
+  latitude: number;
 
-  @Column({ type: 'float8' })
-  lon: number;
+  @Column({ type: 'float8', name: 'longitude' })
+  longitude: number;
 
   @Column({ type: 'text', nullable: true })
   address: string | null;
 
+  @Column({ type: 'text', name: 'reason', default: 'ignition_off' })
+  reason: string; // 'ignition_off' | 'no_movement' | 'parking'
+
   @Column({ type: 'boolean', name: 'is_active', default: true })
   @Index()
   is_active: boolean;
-
-  @Column({ type: 'text', name: 'stop_type', default: 'motion' })
-  stop_type: string;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, any> | null;

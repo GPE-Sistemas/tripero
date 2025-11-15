@@ -20,7 +20,7 @@ export class Trip {
   @Column({ type: 'timestamptz', name: 'end_time', nullable: true })
   end_time: Date | null;
 
-  @Column({ type: 'uuid', name: 'id_activo' })
+  @Column({ type: 'varchar', length: 255, name: 'id_activo' })
   @Index()
   id_activo: string;
 

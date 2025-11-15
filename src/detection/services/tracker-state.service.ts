@@ -352,25 +352,25 @@ export class TrackerStateService {
     if (!data) return null;
 
     try {
-      const parsed = JSON.parse(data);
+      // RedisService.get() ya retorna el objeto parseado
       // Convertir strings de fecha a Date objects
       return {
-        ...parsed,
-        lastPositionTime: parsed.lastPositionTime
-          ? new Date(parsed.lastPositionTime)
+        ...data,
+        lastPositionTime: data.lastPositionTime
+          ? new Date(data.lastPositionTime)
           : undefined,
-        stateSince: parsed.stateSince ? new Date(parsed.stateSince) : undefined,
-        tripStartTime: parsed.tripStartTime
-          ? new Date(parsed.tripStartTime)
+        stateSince: data.stateSince ? new Date(data.stateSince) : undefined,
+        tripStartTime: data.tripStartTime
+          ? new Date(data.tripStartTime)
           : undefined,
-        firstSeenAt: new Date(parsed.firstSeenAt),
-        lastSeenAt: new Date(parsed.lastSeenAt),
-        createdAt: new Date(parsed.createdAt),
-        updatedAt: new Date(parsed.updatedAt),
+        firstSeenAt: new Date(data.firstSeenAt),
+        lastSeenAt: new Date(data.lastSeenAt),
+        createdAt: new Date(data.createdAt),
+        updatedAt: new Date(data.updatedAt),
       };
     } catch (error) {
       this.logger.error(
-        `Error parsing state from Redis for ${trackerId}`,
+        `Error processing state from Redis for ${trackerId}`,
         error,
       );
       return null;
