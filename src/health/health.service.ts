@@ -2,13 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/typeorm';
 import { Connection } from 'typeorm';
 import { RedisService } from '../auxiliares/redis/redis.service';
-import { HttpService } from '../auxiliares/http/http.service';
 
 @Injectable()
 export class HealthService {
   constructor(
     private redis: RedisService,
-    private http: HttpService,
     @InjectConnection()
     private connection: Connection,
   ) {}
@@ -17,10 +15,9 @@ export class HealthService {
     const checks = await Promise.allSettled([
       this.checkRedis(),
       this.checkDatabase(),
-      this.checkApiDatos(),
     ]);
 
-    const [redisCheck, databaseCheck, apiDatosCheck] = checks;
+    const [redisCheck, databaseCheck] = checks;
 
     return {
       status: 'ok',
@@ -37,12 +34,6 @@ export class HealthService {
           details: databaseCheck.status === 'fulfilled'
             ? databaseCheck.value
             : { error: (databaseCheck as PromiseRejectedResult).reason?.message },
-        },
-        apiDatos: {
-          status: apiDatosCheck.status === 'fulfilled' ? 'up' : 'down',
-          details: apiDatosCheck.status === 'fulfilled'
-            ? apiDatosCheck.value
-            : { error: (apiDatosCheck as PromiseRejectedResult).reason?.message },
         },
       },
     };
@@ -105,16 +96,6 @@ export class HealthService {
       };
     } catch (error) {
       throw new Error(`Database check failed: ${error.message}`);
-    }
-  }
-
-  private async checkApiDatos() {
-    try {
-      // Intentar hacer un health check al API de datos si existe
-      // Si no, simplemente verificar que la URL está configurada
-      return { message: 'API Datos configured', configured: true };
-    } catch (error) {
-      throw new Error(`API Datos check failed: ${error.message}`);
     }
   }
 }

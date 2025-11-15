@@ -6,11 +6,11 @@ import {
   DB_USERNAME,
   DB_PASSWORD,
   DB_DATABASE,
-  DB_SYNCHRONIZE,
   DB_LOGGING,
 } from '../env';
 import { Trip, Stop, TrackerState } from './entities';
 import { TripRepository, StopRepository, TrackerStateRepository } from './repositories';
+import { DatabaseInitService } from './services/database-init.service';
 
 @Module({
   imports: [
@@ -22,7 +22,7 @@ import { TripRepository, StopRepository, TrackerStateRepository } from './reposi
       password: DB_PASSWORD,
       database: DB_DATABASE,
       entities: [Trip, Stop, TrackerState],
-      synchronize: DB_SYNCHRONIZE, // Solo en desarrollo
+      synchronize: true, // TypeORM auto-crea/actualiza tablas
       logging: DB_LOGGING,
       // Opciones adicionales para TimescaleDB
       extra: {
@@ -33,7 +33,12 @@ import { TripRepository, StopRepository, TrackerStateRepository } from './reposi
     }),
     TypeOrmModule.forFeature([Trip, Stop, TrackerState]),
   ],
-  providers: [TripRepository, StopRepository, TrackerStateRepository],
+  providers: [
+    TripRepository,
+    StopRepository,
+    TrackerStateRepository,
+    DatabaseInitService,
+  ],
   exports: [TypeOrmModule, TripRepository, StopRepository, TrackerStateRepository],
 })
 export class DatabaseModule {}
