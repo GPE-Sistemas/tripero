@@ -95,11 +95,11 @@ export class ReportsService {
       spentFuel: undefined, // TODO: calcular si hay sensores
       duration: trip.duration,
       startTime: trip.start_time.toISOString(),
-      startAddress: trip.start_address ?? undefined,
+      startAddress: undefined, // Geocoding should be done by consuming service
       startLat: trip.start_lat,
       startLon: trip.start_lon,
       endTime: trip.end_time?.toISOString() || trip.start_time.toISOString(),
-      endAddress: trip.end_address ?? undefined,
+      endAddress: undefined, // Geocoding should be done by consuming service
       endLat: trip.end_lat || trip.start_lat,
       endLon: trip.end_lon || trip.start_lon,
       driverUniqueId: undefined, // TODO: si se necesita
@@ -119,7 +119,7 @@ export class ReportsService {
       endTime: stop.end_time?.toISOString() || stop.start_time.toISOString(),
       latitude: stop.latitude,
       longitude: stop.longitude,
-      address: stop.address ?? undefined,
+      address: undefined, // Geocoding should be done by consuming service
       engineHours: undefined, // TODO: si se necesita
     }));
   }

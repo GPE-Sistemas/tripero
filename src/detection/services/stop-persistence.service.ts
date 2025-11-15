@@ -130,7 +130,6 @@ export class StopPersistenceService implements OnModuleInit {
       await this.stopRepository.update(stop.id, {
         end_time: new Date(event.endTime),
         duration: event.duration,
-        address: event.address,
         is_active: false,
         metadata: {
           ...stop.metadata,
@@ -140,7 +139,7 @@ export class StopPersistenceService implements OnModuleInit {
 
       this.logger.log(
         `Stop ${stop.id} completado para device ${event.deviceId}: ` +
-          `${event.duration}s en ${event.address || 'ubicación desconocida'}`,
+          `${event.duration}s (${stop.latitude.toFixed(4)}, ${stop.longitude.toFixed(4)})`,
       );
     } catch (error) {
       this.logger.error(

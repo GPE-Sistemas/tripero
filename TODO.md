@@ -53,15 +53,6 @@ Ninguna tarea en progreso actualmente.
 
 ## 📋 Pendiente
 
-### Geocoding
-- [ ] GeocodingService con integración a Nominatim
-- [ ] Llamar a geocoding desde TripPersistenceService
-- [ ] Llamar a geocoding desde StopPersistenceService
-- [ ] Poblar campos start_address, end_address en trips
-- [ ] Poblar campo address en stops
-- [ ] Cache de geocoding para evitar consultas duplicadas
-- [ ] Configuración de Nominatim (Docker local o API pública)
-
 ### Testing
 - [ ] Unit tests para PositionProcessorService
 - [ ] Unit tests para StateMachineService
@@ -129,12 +120,13 @@ Ninguno por el momento.
 ## 📝 Notas
 
 - **Estado Actual**: MVP funcional para detección de trips y stops ✅
-- **Prioridad Alta**: Geocoding y Tests
+- **Prioridad Alta**: Tests
 - **Prioridad Media**: Documentación y optimizaciones
 - **Prioridad Baja**: Funcionalidades avanzadas
+- **Geocoding**: No es responsabilidad de Tripero. Debe ser manejado por el sistema consumidor usando servicios especializados como Nominatim.
 
 ---
 
 **Última actualización**: 2025-11-15
 **Versión actual**: 0.2.0
-**Estado**: MVP completado - En producción lista con geocoding pendiente
+**Estado**: MVP completado - Listo para producción

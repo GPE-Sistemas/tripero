@@ -47,12 +47,6 @@ export class Trip {
   @Column({ type: 'float8', name: 'end_lon', nullable: true })
   end_lon: number | null;
 
-  @Column({ type: 'text', name: 'start_address', nullable: true })
-  start_address: string | null;
-
-  @Column({ type: 'text', name: 'end_address', nullable: true })
-  end_address: string | null;
-
   @Column({ type: 'jsonb', name: 'route_points', default: '[]' })
   route_points: Array<{
     lat: number;

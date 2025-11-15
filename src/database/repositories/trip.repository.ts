@@ -20,8 +20,6 @@ export interface IUpdateTripData {
   max_speed?: number;
   avg_speed?: number;
   duration?: number;
-  start_address?: string;
-  end_address?: string;
   route_points?: Array<{
     lat: number;
     lon: number;

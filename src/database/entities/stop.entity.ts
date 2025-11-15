@@ -37,9 +37,6 @@ export class Stop {
   @Column({ type: 'float8', name: 'longitude' })
   longitude: number;
 
-  @Column({ type: 'text', nullable: true })
-  address: string | null;
-
   @Column({ type: 'text', name: 'reason', default: 'ignition_off' })
   reason: string; // 'ignition_off' | 'no_movement' | 'parking'
 

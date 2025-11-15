@@ -60,6 +60,5 @@ export interface IStopCompletedEvent {
     type: 'Point';
     coordinates: [number, number]; // [lon, lat]
   };
-  address?: string; // Geocoding opcional
   reason: 'ignition_off' | 'no_movement' | 'parking';
 }

@@ -256,7 +256,6 @@ export class PositionProcessorService {
               updatedState.stopStartLat,
             ],
           },
-          // address: undefined, // Geocoding será manejado por servicio externo
           reason: updatedState.stopReason || 'no_movement',
         };
 
