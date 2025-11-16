@@ -118,30 +118,9 @@ export class PositionProcessorService {
     const { actions, updatedState } = result;
 
     try {
-      // Iniciar trip
-      if (actions.startTrip && updatedState.currentTripId) {
-        const event: ITripStartedEvent = {
-          tripId: updatedState.currentTripId,
-          deviceId: position.deviceId,
-          startTime: new Date(updatedState.tripStartTime).toISOString(),
-          startLocation: {
-            type: 'Point',
-            coordinates: [
-              updatedState.tripStartLon,
-              updatedState.tripStartLat,
-            ],
-          },
-          detectionMethod: position.ignition ? 'ignition' : 'motion',
-        };
-
-        await this.eventPublisher.publishTripStarted(event);
-
-        // Notificar al TrackerStateService
-        await this.trackerState.onTripStarted(
-          position.deviceId,
-          updatedState.currentTripId,
-        );
-      }
+      // IMPORTANTE: Finalizar trip ANTES de iniciar nuevo para evitar race conditions
+      // Cuando endTrip y startTrip son ambos true, el nuevo trip se crea ANTES de cerrar
+      // el viejo, causando que trip-persistence encuentre el nuevo (con 0m,0s) en lugar del viejo
 
       // Finalizar trip
       if (actions.endTrip && updatedState.currentTripId) {
@@ -195,6 +174,31 @@ export class PositionProcessorService {
         updatedState.tripStopsCount = undefined;
 
         await this.deviceState.saveDeviceState(updatedState);
+      }
+
+      // Iniciar trip (DESPUÉS de finalizar el anterior para evitar race conditions)
+      if (actions.startTrip && updatedState.currentTripId) {
+        const event: ITripStartedEvent = {
+          tripId: updatedState.currentTripId,
+          deviceId: position.deviceId,
+          startTime: new Date(updatedState.tripStartTime).toISOString(),
+          startLocation: {
+            type: 'Point',
+            coordinates: [
+              updatedState.tripStartLon,
+              updatedState.tripStartLat,
+            ],
+          },
+          detectionMethod: position.ignition ? 'ignition' : 'motion',
+        };
+
+        await this.eventPublisher.publishTripStarted(event);
+
+        // Notificar al TrackerStateService
+        await this.trackerState.onTripStarted(
+          position.deviceId,
+          updatedState.currentTripId,
+        );
       }
 
       // Iniciar stop
