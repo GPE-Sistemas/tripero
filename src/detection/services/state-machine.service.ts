@@ -21,6 +21,7 @@ export interface IStateTransitionResult {
   actions: {
     startTrip?: boolean;
     endTrip?: boolean;
+    discardTrip?: boolean; // true = limpiar estado sin publicar evento (trip muy corto)
     startStop?: boolean;
     endStop?: boolean;
     updateTrip?: boolean;
@@ -184,6 +185,7 @@ export class StateMachineService {
       startTrip: state === MotionState.MOVING,
       updateTrip: false,
       endTrip: false,
+      discardTrip: false,
       startStop: state === MotionState.STOPPED || state === MotionState.IDLE,
       endStop: false,
     };
@@ -345,6 +347,7 @@ export class StateMachineService {
     const actions: IStateTransitionResult['actions'] = {
       startTrip: false,
       endTrip: false,
+      discardTrip: false,
       updateTrip: false,
       startStop: false,
       endStop: false,
@@ -405,11 +408,11 @@ export class StateMachineService {
           `Trip completed for device ${updatedState.deviceId}: duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m`,
         );
       } else {
-        // Trip muy corto, descartarlo
+        // Trip muy corto, descartarlo silenciosamente
         this.logger.debug(
           `Trip too short for device ${updatedState.deviceId}, discarding: duration=${tripDuration.toFixed(1)}s (min=${this.thresholds.minTripDuration}s), distance=${Math.round(tripDistance)}m (min=${this.thresholds.minTripDistance}m)`,
         );
-        actions.endTrip = true; // Cerrar de todos modos pero sin guardar
+        actions.discardTrip = true; // Limpiar estado sin publicar evento
       }
 
       // Iniciar stop por ignición OFF
@@ -460,6 +463,7 @@ export class StateMachineService {
     // Si había trip activo, cerrarlo
     const actions: IStateTransitionResult['actions'] = {
       endTrip: !!currentState.currentTripId,
+      discardTrip: false,
       startTrip: false,
       updateTrip: false,
       startStop: false,
