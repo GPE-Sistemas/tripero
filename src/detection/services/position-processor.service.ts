@@ -121,7 +121,25 @@ export class PositionProcessorService {
       // IMPORTANTE: Finalizar trip ANTES de iniciar nuevo para evitar race conditions
       // Usamos previousTrip cuando está disponible (auto-close) para tener los datos correctos
 
-      // Finalizar trip
+      // Descartar trip (limpiar sin publicar evento)
+      if (actions.discardTrip) {
+        this.logger.debug(
+          `Discarding trip for device ${position.deviceId} without publishing event`,
+        );
+
+        // Solo limpiar estado, NO publicar eventos ni notificar estadísticas
+        updatedState.currentTripId = undefined;
+        updatedState.tripStartTime = undefined;
+        updatedState.tripStartLat = undefined;
+        updatedState.tripStartLon = undefined;
+        updatedState.tripDistance = undefined;
+        updatedState.tripMaxSpeed = undefined;
+        updatedState.tripStopsCount = undefined;
+
+        await this.deviceState.saveDeviceState(updatedState);
+      }
+
+      // Finalizar trip (con evento)
       if (actions.endTrip) {
         // Si hay previousTrip, usar esos datos (caso auto-close)
         // Si no, usar updatedState (caso trip normal con ignición OFF)
