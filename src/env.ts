@@ -20,3 +20,19 @@ export const DB_USERNAME = process.env.DB_USERNAME || 'postgres';
 export const DB_PASSWORD = process.env.DB_PASSWORD || 'postgres';
 export const DB_DATABASE = process.env.DB_DATABASE || 'tripero';
 export const DB_LOGGING = process.env.DB_LOGGING === 'true';
+
+// Redis TTL Configuration (en segundos)
+export const TRACKER_STATE_TTL = parseInt(
+  process.env.TRACKER_STATE_TTL || String(7 * 24 * 60 * 60),
+  10,
+); // 7 días por defecto
+export const DEVICE_STATE_TTL = parseInt(
+  process.env.DEVICE_STATE_TTL || String(7 * 24 * 60 * 60),
+  10,
+); // 7 días por defecto (alineado con tracker_state)
+
+// Position event validation
+export const POSITION_MAX_AGE_HOURS = parseInt(
+  process.env.POSITION_MAX_AGE_HOURS || '24',
+  10,
+); // Máximo age de posiciones en horas

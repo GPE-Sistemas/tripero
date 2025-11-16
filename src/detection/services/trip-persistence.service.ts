@@ -112,13 +112,21 @@ export class TripPersistenceService implements OnModuleInit {
         `Completando trip ${event.tripId} para device ${event.deviceId}`,
       );
 
-      // Encontrar el trip activo por deviceId
-      // (ya que el tripId es solo un identificador del evento, no el PK de la BD)
-      const trip = await this.tripRepository.findActiveByAsset(event.deviceId);
+      // Buscar trip por ID directo para evitar race conditions
+      // cuando hay múltiples trips sucesivos
+      const trip = await this.tripRepository.findById(event.tripId);
 
       if (!trip) {
         this.logger.warn(
-          `No se encontró trip activo para device ${event.deviceId}`,
+          `Trip ${event.tripId} no encontrado en BD`,
+        );
+        return;
+      }
+
+      // Verificar que el trip pertenece al dispositivo correcto (seguridad)
+      if (trip.id_activo !== event.deviceId) {
+        this.logger.error(
+          `Trip ${event.tripId} pertenece a device ${trip.id_activo}, no a ${event.deviceId}`,
         );
         return;
       }

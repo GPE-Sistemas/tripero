@@ -119,33 +119,37 @@ export class PositionProcessorService {
 
     try {
       // IMPORTANTE: Finalizar trip ANTES de iniciar nuevo para evitar race conditions
-      // Cuando endTrip y startTrip son ambos true, el nuevo trip se crea ANTES de cerrar
-      // el viejo, causando que trip-persistence encuentre el nuevo (con 0m,0s) en lugar del viejo
+      // Usamos previousTrip cuando está disponible (auto-close) para tener los datos correctos
 
       // Finalizar trip
-      if (actions.endTrip && updatedState.currentTripId) {
-        const tripDuration =
-          (updatedState.lastTimestamp - updatedState.tripStartTime) / 1000;
+      if (actions.endTrip) {
+        // Si hay previousTrip, usar esos datos (caso auto-close)
+        // Si no, usar updatedState (caso trip normal con ignición OFF)
+        const tripData = result.previousTrip || {
+          tripId: updatedState.currentTripId,
+          startTime: updatedState.tripStartTime || 0,
+          startLat: updatedState.tripStartLat || 0,
+          startLon: updatedState.tripStartLon || 0,
+          distance: updatedState.tripDistance || 0,
+          maxSpeed: updatedState.tripMaxSpeed || 0,
+          stopsCount: updatedState.tripStopsCount || 0,
+        };
+
+        const tripDuration = (updatedState.lastTimestamp - tripData.startTime) / 1000;
 
         const event: ITripCompletedEvent = {
-          tripId: updatedState.currentTripId,
+          tripId: tripData.tripId,
           deviceId: position.deviceId,
-          startTime: new Date(updatedState.tripStartTime).toISOString(),
+          startTime: new Date(tripData.startTime).toISOString(),
           endTime: new Date(updatedState.lastTimestamp).toISOString(),
           duration: Math.round(tripDuration),
-          distance: Math.round(updatedState.tripDistance || 0),
-          avgSpeed: this.calculateAvgSpeed(
-            updatedState.tripDistance || 0,
-            tripDuration,
-          ),
-          maxSpeed: Math.round(updatedState.tripMaxSpeed || 0),
-          stopsCount: updatedState.tripStopsCount || 0,
+          distance: Math.round(tripData.distance),
+          avgSpeed: this.calculateAvgSpeed(tripData.distance, tripDuration),
+          maxSpeed: Math.round(tripData.maxSpeed),
+          stopsCount: tripData.stopsCount,
           startLocation: {
             type: 'Point',
-            coordinates: [
-              updatedState.tripStartLon,
-              updatedState.tripStartLat,
-            ],
+            coordinates: [tripData.startLon, tripData.startLat],
           },
           endLocation: {
             type: 'Point',

@@ -9,6 +9,7 @@ import {
 @Entity('trips')
 @Index(['id_activo', 'start_time'])
 @Index(['start_time'])
+@Index(['id', 'id_activo']) // Para búsquedas por ID + validación de device
 export class Trip {
   @PrimaryColumn({ type: 'varchar', length: 255 })
   id: string;

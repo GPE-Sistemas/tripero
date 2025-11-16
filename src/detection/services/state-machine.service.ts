@@ -28,6 +28,17 @@ export interface IStateTransitionResult {
 
   // Estado actualizado
   updatedState: IDeviceMotionState;
+
+  // Datos del trip anterior (para cerrar correctamente antes de crear nuevo)
+  previousTrip?: {
+    tripId: string;
+    startTime: number;
+    startLat: number;
+    startLon: number;
+    distance: number;
+    maxSpeed: number;
+    stopsCount: number;
+  };
 }
 
 @Injectable()
@@ -70,6 +81,21 @@ export class StateMachineService {
       newState,
       updatedState,
     );
+
+    // IMPORTANTE: Guardar datos del trip anterior ANTES de inicializar el nuevo
+    // para evitar pérdida de datos cuando ambos endTrip y startTrip son true
+    let previousTrip: IStateTransitionResult['previousTrip'] = undefined;
+    if (actions.endTrip && actions.startTrip && updatedState.currentTripId) {
+      previousTrip = {
+        tripId: updatedState.currentTripId,
+        startTime: updatedState.tripStartTime || 0,
+        startLat: updatedState.tripStartLat || 0,
+        startLon: updatedState.tripStartLon || 0,
+        distance: updatedState.tripDistance || 0,
+        maxSpeed: updatedState.tripMaxSpeed || 0,
+        stopsCount: updatedState.tripStopsCount || 0,
+      };
+    }
 
     // Inicializar trip si es necesario
     if (actions.startTrip) {
@@ -116,6 +142,7 @@ export class StateMachineService {
       reason,
       actions,
       updatedState,
+      previousTrip,
     };
   }
 
