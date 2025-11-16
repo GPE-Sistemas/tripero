@@ -58,7 +58,7 @@ export class TrackerState {
   state_since: Date | null;
 
   // Trip actual
-  @Column({ type: 'uuid', name: 'current_trip_id', nullable: true })
+  @Column({ type: 'varchar', length: 255, name: 'current_trip_id', nullable: true })
   current_trip_id: string | null;
 
   @Column({ type: 'timestamptz', name: 'trip_start_time', nullable: true })
