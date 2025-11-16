@@ -329,6 +329,32 @@ export class StateMachineService {
         previousState === MotionState.IDLE) &&
       newState === MotionState.MOVING
     ) {
+      // Si había un trip activo previo, finalizarlo antes de crear uno nuevo
+      // Esto previene la acumulación de trips sin cerrar cuando los dispositivos
+      // solo reportan transiciones de velocidad sin eventos de ignición
+      if (updatedState.currentTripId) {
+        const tripDuration =
+          (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) / 1000;
+        const tripDistance = updatedState.tripDistance || 0;
+
+        // Validar si el trip cumple con los mínimos para ser guardado
+        if (
+          tripDuration >= this.thresholds.minTripDuration &&
+          tripDistance >= this.thresholds.minTripDistance
+        ) {
+          actions.endTrip = true;
+          this.logger.log(
+            `Auto-closing previous trip for device ${updatedState.deviceId} on new trip start: duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m`,
+          );
+        } else {
+          // Trip muy corto, marcarlo para cerrar sin guardar
+          actions.endTrip = true;
+          this.logger.debug(
+            `Auto-discarding short trip for device ${updatedState.deviceId} on new trip start: duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m`,
+          );
+        }
+      }
+
       actions.startTrip = true;
 
       // Si había un stop activo, finalizarlo
