@@ -1,3 +1,5 @@
+import { POSITION_MAX_AGE_HOURS } from '../env';
+
 /**
  * Evento de entrada: position:new
  *
@@ -98,11 +100,12 @@ export const validatePositionEvent = (event: any): event is IPositionEvent => {
   // Validar velocidad
   if (event.speed < 0) return false;
 
-  // Validar timestamp (no futuro, máximo 24 horas en el pasado para permitir delays)
+  // Validar timestamp (no futuro, máximo N horas en el pasado - configurable)
   const now = Date.now();
-  const oneDayAgo = now - 86400000; // 24 horas
+  const maxAgeMs = POSITION_MAX_AGE_HOURS * 60 * 60 * 1000;
+  const oldestAllowed = now - maxAgeMs;
   if (event.timestamp > now + 60000) return false; // +1 min tolerancia de clock skew
-  if (event.timestamp < oneDayAgo) return false;
+  if (event.timestamp < oldestAllowed) return false;
 
   // Validar opcionales si están presentes
   if (event.altitude !== undefined && typeof event.altitude !== 'number') return false;

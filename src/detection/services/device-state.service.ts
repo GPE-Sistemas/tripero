@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { IDeviceMotionState } from '../models';
+import { DEVICE_STATE_TTL } from '../../env';
 
 /**
  * Servicio para gestionar el estado de dispositivos en Redis
@@ -8,7 +9,7 @@ import { IDeviceMotionState } from '../models';
 @Injectable()
 export class DeviceStateService {
   private readonly logger = new Logger(DeviceStateService.name);
-  private readonly STATE_TTL = 86400; // 24 horas
+  private readonly STATE_TTL = DEVICE_STATE_TTL; // Configurable via env, alineado con tracker_state
 
   constructor(private readonly redis: RedisService) {}
 

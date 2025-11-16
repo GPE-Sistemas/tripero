@@ -113,13 +113,21 @@ export class StopPersistenceService implements OnModuleInit {
         `Completando stop ${event.stopId} para device ${event.deviceId}`,
       );
 
-      // Encontrar el stop activo por deviceId
-      // (ya que el stopId es solo un identificador del evento, no el PK de la BD)
-      const stop = await this.stopRepository.findActiveByAsset(event.deviceId);
+      // Buscar stop por ID directo para evitar race conditions
+      // cuando hay múltiples stops sucesivos
+      const stop = await this.stopRepository.findById(event.stopId);
 
       if (!stop) {
         this.logger.warn(
-          `No se encontró stop activo para device ${event.deviceId}`,
+          `Stop ${event.stopId} no encontrado en BD`,
+        );
+        return;
+      }
+
+      // Verificar que el stop pertenece al dispositivo correcto (seguridad)
+      if (stop.id_activo !== event.deviceId) {
+        this.logger.error(
+          `Stop ${event.stopId} pertenece a device ${stop.id_activo}, no a ${event.deviceId}`,
         );
         return;
       }

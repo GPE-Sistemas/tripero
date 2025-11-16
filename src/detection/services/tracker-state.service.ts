@@ -3,6 +3,7 @@ import { TrackerStateRepository } from '../../database/repositories';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { IPositionEvent } from '../../interfaces';
 import { ITrackerState, ITrackerStatus, IResetOdometer } from '../../models';
+import { TRACKER_STATE_TTL } from '../../env';
 
 /**
  * Servicio de gestión de estado de trackers
@@ -17,7 +18,7 @@ import { ITrackerState, ITrackerStatus, IResetOdometer } from '../../models';
 export class TrackerStateService {
   private readonly logger = new Logger(TrackerStateService.name);
   private readonly REDIS_KEY_PREFIX = 'tracker:state:';
-  private readonly STATE_TTL = 7 * 24 * 60 * 60; // 7 días
+  private readonly STATE_TTL = TRACKER_STATE_TTL; // Configurable via env
 
   constructor(
     private readonly trackerStateRepository: TrackerStateRepository,
@@ -320,8 +321,9 @@ export class TrackerStateService {
 
   /**
    * Obtiene estado desde Redis o PostgreSQL
+   * PÚBLICO: Usado por PositionSubscriberService para obtener último estado de ignición
    */
-  async getState(trackerId: string): Promise<ITrackerState | null> {
+  public async getState(trackerId: string): Promise<ITrackerState | null> {
     // Intentar desde Redis primero
     let state = await this.getStateFromRedis(trackerId);
 
