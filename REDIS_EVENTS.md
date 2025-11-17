@@ -89,33 +89,99 @@ Todos los eventos se publican en formato **JSON** en canales específicos de Red
 ```typescript
 {
   "trackerId": string,           // ID del tracker/dispositivo
+  "deviceId": string,            // ID del dispositivo (mismo que trackerId)
   "previousState": "STOPPED" | "IDLE" | "MOVING",
-  "newState": "STOPPED" | "IDLE" | "MOVING",
+  "currentState": "STOPPED" | "IDLE" | "MOVING",
   "timestamp": string,           // ISO 8601 format
   "reason": string,              // Razón del cambio (ej: "threshold_reached", "ignition_on")
-  "location": {
-    "type": "Point",
-    "coordinates": [number, number]  // [lon, lat]
+  "odometer": {
+    "total": number,             // Odómetro total en metros (incluye offset)
+    "totalKm": number,           // Odómetro total en kilómetros
+    "currentTrip": number,       // Distancia del trip actual en metros (opcional)
+    "currentTripKm": number      // Distancia del trip actual en km (opcional)
   },
-  "speed": number,               // Velocidad actual en km/h
-  "odometer": number             // Odómetro total en metros (incluye offset)
+  "lastPosition": {
+    "timestamp": string,         // ISO 8601 format
+    "latitude": number,
+    "longitude": number,
+    "speed": number,             // km/h
+    "ignition": boolean,
+    "heading": number,           // grados (0-360)
+    "altitude": number,          // metros
+    "age": number                // segundos desde la última posición
+  },
+  "currentTrip": {               // Solo si hay trip activo
+    "tripId": string,
+    "startTime": string,         // ISO 8601 format
+    "duration": number,          // segundos desde que inició
+    "distance": number,          // metros recorridos
+    "avgSpeed": number,          // km/h promedio
+    "maxSpeed": number,          // km/h máxima alcanzada
+    "odometerAtStart": number    // odómetro cuando inició el trip (metros)
+  }
 }
 ```
 
-**Ejemplo:**
+**Ejemplo (con trip activo):**
 ```json
 {
-  "trackerId": "1334",
+  "trackerId": "VEHICLE-001",
+  "deviceId": "VEHICLE-001",
   "previousState": "IDLE",
-  "newState": "MOVING",
-  "timestamp": "2025-11-17T14:23:45.123Z",
+  "currentState": "MOVING",
+  "timestamp": "2024-11-17T10:30:15.123Z",
   "reason": "threshold_reached",
-  "location": {
-    "type": "Point",
-    "coordinates": [-58.381592, -34.603722]
+  "odometer": {
+    "total": 125430000,
+    "totalKm": 125430,
+    "currentTrip": 8540,
+    "currentTripKm": 8
   },
-  "speed": 35,
-  "odometer": 125450000
+  "lastPosition": {
+    "timestamp": "2024-11-17T10:30:15.123Z",
+    "latitude": -31.4201,
+    "longitude": -64.1888,
+    "speed": 45,
+    "ignition": true,
+    "heading": 135,
+    "altitude": 420,
+    "age": 0
+  },
+  "currentTrip": {
+    "tripId": "trip_VEHICLE-001_1731832200000_abc123",
+    "startTime": "2024-11-17T08:30:00.000Z",
+    "duration": 7215,
+    "distance": 8540,
+    "avgSpeed": 42,
+    "maxSpeed": 85,
+    "odometerAtStart": 125421460
+  }
+}
+```
+
+**Ejemplo (sin trip activo):**
+```json
+{
+  "trackerId": "VEHICLE-002",
+  "deviceId": "VEHICLE-002",
+  "previousState": "MOVING",
+  "currentState": "STOPPED",
+  "timestamp": "2024-11-17T18:45:30.456Z",
+  "reason": "ignition_off",
+  "odometer": {
+    "total": 87234000,
+    "totalKm": 87234
+  },
+  "lastPosition": {
+    "timestamp": "2024-11-17T18:45:30.456Z",
+    "latitude": -34.6037,
+    "longitude": -58.3816,
+    "speed": 0,
+    "ignition": false,
+    "heading": 270,
+    "altitude": 25,
+    "age": 0
+  }
 }
 ```
 

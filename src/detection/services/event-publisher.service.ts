@@ -83,7 +83,7 @@ export class EventPublisherService {
       await this.redis.publish('tracker:state:changed', JSON.stringify(event));
       this.logger.log(
         `Published tracker:state:changed for device ${event.trackerId}: ` +
-          `${event.previousState} → ${event.newState} (${event.reason})`,
+          `${event.previousState} → ${event.currentState} (${event.reason})`,
       );
     } catch (error) {
       this.logger.error('Error publishing tracker:state:changed', error.stack);

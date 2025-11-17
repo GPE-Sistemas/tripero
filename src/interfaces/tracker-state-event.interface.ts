@@ -4,12 +4,18 @@
  * Canal Redis: tracker:state:changed
  *
  * Permite a IRIX recibir actualizaciones en tiempo real sin polling
+ * Incluye información completa del tracker para evitar llamadas adicionales a la API
  */
 export interface ITrackerStateChangedEvent {
   /**
    * ID del tracker/dispositivo
    */
   trackerId: string;
+
+  /**
+   * ID del dispositivo (igual a trackerId, incluido por compatibilidad)
+   */
+  deviceId: string;
 
   /**
    * Estado anterior de movimiento
@@ -19,7 +25,7 @@ export interface ITrackerStateChangedEvent {
   /**
    * Nuevo estado de movimiento
    */
-  newState: 'STOPPED' | 'IDLE' | 'MOVING';
+  currentState: 'STOPPED' | 'IDLE' | 'MOVING';
 
   /**
    * Timestamp del evento en formato ISO 8601
@@ -33,20 +39,54 @@ export interface ITrackerStateChangedEvent {
   reason: string;
 
   /**
-   * Ubicación actual del tracker
+   * Información del odómetro
    */
-  location: {
-    type: 'Point';
-    coordinates: [number, number]; // [lon, lat]
+  odometer: {
+    /**
+     * Odómetro total en metros (incluye offset)
+     */
+    total: number;
+    /**
+     * Odómetro total en kilómetros (total / 1000)
+     */
+    totalKm: number;
+    /**
+     * Distancia del trip actual en metros (si hay trip activo)
+     */
+    currentTrip?: number;
+    /**
+     * Distancia del trip actual en kilómetros
+     */
+    currentTripKm?: number;
   };
 
   /**
-   * Velocidad actual en km/h
+   * Última posición conocida del tracker
    */
-  speed: number;
+  lastPosition: {
+    timestamp: string;
+    latitude: number;
+    longitude: number;
+    speed: number;
+    ignition?: boolean;
+    heading?: number;
+    altitude?: number;
+    /**
+     * Edad de la última posición en segundos
+     */
+    age: number;
+  };
 
   /**
-   * Odómetro total del tracker en metros (incluye offset si está configurado)
+   * Información del trip actual (si está en movimiento)
    */
-  odometer: number;
+  currentTrip?: {
+    tripId: string;
+    startTime: string;
+    duration: number; // segundos
+    distance: number; // metros
+    avgSpeed: number; // km/h
+    maxSpeed: number; // km/h
+    odometerAtStart: number; // metros
+  };
 }
