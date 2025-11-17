@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { StopRepository } from '../../database/repositories/stop.repository';
+import { DeviceEventQueueManager } from './device-event-queue.manager';
 import {
   IStopStartedEvent,
   IStopCompletedEvent,
@@ -22,6 +23,7 @@ export class StopPersistenceService implements OnModuleInit {
   constructor(
     private readonly redisService: RedisService,
     private readonly stopRepository: StopRepository,
+    private readonly eventQueueManager: DeviceEventQueueManager,
   ) {}
 
   /**
@@ -41,16 +43,32 @@ export class StopPersistenceService implements OnModuleInit {
       // Crear cliente subscriber separado usando el método del RedisService
       this.subscriber = this.redisService.createSubscriber();
 
-      // Manejar eventos
+      // Manejar eventos - encolar para procesamiento secuencial por dispositivo
       this.subscriber.on('message', async (channel: string, message: string) => {
-        if (channel === 'stop:started') {
-          await this.handleStopStarted(message).catch((error) => {
-            this.logger.error('Error handling stop:started event', error.stack);
-          });
-        } else if (channel === 'stop:completed') {
-          await this.handleStopCompleted(message).catch((error) => {
-            this.logger.error('Error handling stop:completed event', error.stack);
-          });
+        try {
+          const event = JSON.parse(message);
+          const deviceId = event.deviceId;
+
+          if (!deviceId) {
+            this.logger.warn(`Event without deviceId on channel ${channel}`);
+            return;
+          }
+
+          // Encolar evento para procesamiento secuencial
+          if (channel === 'stop:started') {
+            await this.eventQueueManager.enqueue(deviceId, async () => {
+              await this.handleStopStarted(message);
+            });
+          } else if (channel === 'stop:completed') {
+            await this.eventQueueManager.enqueue(deviceId, async () => {
+              await this.handleStopCompleted(message);
+            });
+          }
+        } catch (error) {
+          this.logger.error(
+            `Error enqueuing event from channel ${channel}`,
+            error.stack,
+          );
         }
       });
 

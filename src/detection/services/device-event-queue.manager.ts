@@ -1,48 +1,36 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { IPositionEvent } from '../../interfaces';
-import { PositionProcessorService } from './position-processor.service';
 
 /**
- * Cola de procesamiento para un dispositivo específico
+ * Cola de eventos para un dispositivo específico
  *
- * Garantiza procesamiento secuencial de posiciones para evitar race conditions
- * en la creación/completado de stops y trips
+ * Procesa eventos de persistencia (stops/trips) de forma secuencial
+ * para evitar race conditions en operaciones de BD
  */
-class DeviceQueue {
-  private queue: IPositionEvent[] = [];
+class DeviceEventQueue {
+  private queue: Array<() => Promise<void>> = [];
   private processing = false;
   private lastActivity: number;
-  private readonly logger: Logger;
 
   constructor(
     private readonly deviceId: string,
-    private readonly processor: PositionProcessorService,
-    parentLogger: Logger,
+    private readonly logger: Logger,
   ) {
     this.lastActivity = Date.now();
-    this.logger = new Logger(`${parentLogger.constructor.name}:Queue:${deviceId}`);
   }
 
   /**
-   * Agrega una posición a la cola y dispara el procesamiento si no está activo
+   * Agrega un evento a la cola y dispara el procesamiento si no está activo
    */
-  async add(position: IPositionEvent): Promise<void> {
-    this.queue.push(position);
+  async add(eventHandler: () => Promise<void>): Promise<void> {
+    this.queue.push(eventHandler);
     this.lastActivity = Date.now();
-
-    // Log solo si la cola empieza a crecer (potencial problema)
-    if (this.queue.length > 5) {
-      this.logger.warn(
-        `High queue size for device ${this.deviceId}: ${this.queue.length} positions`,
-      );
-    }
 
     // Si no está procesando, iniciar procesamiento
     if (!this.processing) {
-      // No await - procesamos en background para no bloquear el publisher
+      // No await - procesamos en background
       this.processQueue().catch((error) => {
         this.logger.error(
-          `Error in queue processing for device ${this.deviceId}`,
+          `Error in event queue processing for device ${this.deviceId}`,
           error.stack,
         );
       });
@@ -50,38 +38,28 @@ class DeviceQueue {
   }
 
   /**
-   * Procesa todas las posiciones en la cola de forma secuencial
+   * Procesa todos los eventos en la cola de forma secuencial
    */
   private async processQueue(): Promise<void> {
     this.processing = true;
 
     try {
       while (this.queue.length > 0) {
-        const position = this.queue.shift();
+        const eventHandler = this.queue.shift();
 
-        if (!position) {
+        if (!eventHandler) {
           continue;
         }
 
-        const startTime = Date.now();
-
         try {
-          // Procesar posición de forma secuencial
-          await this.processor.processPosition(position);
-
-          const processingTime = Date.now() - startTime;
-
-          if (processingTime > 200) {
-            this.logger.warn(
-              `Slow processing for device ${this.deviceId}: ${processingTime}ms`,
-            );
-          }
+          // Ejecutar handler de forma secuencial
+          await eventHandler();
         } catch (error) {
           this.logger.error(
-            `Error processing position for device ${this.deviceId}`,
+            `Error processing event for device ${this.deviceId}`,
             error.stack,
           );
-          // Continuar con la siguiente posición incluso si esta falló
+          // Continuar con el siguiente evento incluso si este falló
         }
       }
     } finally {
@@ -111,30 +89,19 @@ class DeviceQueue {
   isProcessing(): boolean {
     return this.processing;
   }
-
-  /**
-   * Obtiene timestamp de última actividad
-   */
-  getLastActivity(): number {
-    return this.lastActivity;
-  }
 }
 
 /**
- * Gestor de colas de procesamiento por dispositivo
+ * Gestor de colas de eventos de persistencia por dispositivo
  *
- * Mantiene una cola independiente para cada dispositivo, garantizando
- * procesamiento secuencial de posiciones por tracker mientras permite
- * procesamiento paralelo entre diferentes trackers.
- *
- * Esto elimina race conditions en la persistencia de stops/trips que
- * ocurren cuando múltiples eventos (stop:started, stop:completed) se
- * publican casi simultáneamente.
+ * Garantiza procesamiento secuencial de eventos stop:started/completed
+ * y trip:started/completed por dispositivo para evitar race conditions
+ * en operaciones de base de datos.
  */
 @Injectable()
-export class DeviceQueueManager implements OnModuleInit {
-  private readonly logger = new Logger(DeviceQueueManager.name);
-  private queues: Map<string, DeviceQueue> = new Map();
+export class DeviceEventQueueManager implements OnModuleInit {
+  private readonly logger = new Logger(DeviceEventQueueManager.name);
+  private queues: Map<string, DeviceEventQueue> = new Map();
 
   // Métricas
   private totalEnqueued = 0;
@@ -145,10 +112,8 @@ export class DeviceQueueManager implements OnModuleInit {
   private readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
   private readonly QUEUE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos de inactividad
 
-  constructor(private readonly processor: PositionProcessorService) {}
-
   async onModuleInit() {
-    this.logger.log('Initializing Device Queue Manager...');
+    this.logger.log('Initializing Device Event Queue Manager...');
     this.startCleanupTask();
 
     // Log de métricas cada minuto
@@ -158,18 +123,21 @@ export class DeviceQueueManager implements OnModuleInit {
   }
 
   /**
-   * Encola una posición para procesamiento secuencial por dispositivo
+   * Encola un evento para procesamiento secuencial por dispositivo
    */
-  async enqueue(deviceId: string, position: IPositionEvent): Promise<void> {
+  async enqueue(
+    deviceId: string,
+    eventHandler: () => Promise<void>,
+  ): Promise<void> {
     let queue = this.queues.get(deviceId);
 
     if (!queue) {
-      queue = new DeviceQueue(deviceId, this.processor, this.logger);
+      queue = new DeviceEventQueue(deviceId, this.logger);
       this.queues.set(deviceId, queue);
     }
 
     this.totalEnqueued++;
-    await queue.add(position);
+    await queue.add(eventHandler);
 
     // Actualizar máximo tamaño de cola
     const currentSize = queue.getSize();
@@ -178,7 +146,7 @@ export class DeviceQueueManager implements OnModuleInit {
 
       if (this.maxQueueSize > 10) {
         this.logger.warn(
-          `High queue size detected for device ${deviceId}: ${this.maxQueueSize} positions`,
+          `High event queue size for device ${deviceId}: ${this.maxQueueSize} events`,
         );
       }
     }
@@ -193,7 +161,7 @@ export class DeviceQueueManager implements OnModuleInit {
     }, this.CLEANUP_INTERVAL_MS);
 
     this.logger.log(
-      `Cleanup task started: checking every ${this.CLEANUP_INTERVAL_MS / 1000}s for inactive queues`,
+      `Cleanup task started: checking every ${this.CLEANUP_INTERVAL_MS / 1000}s for inactive event queues`,
     );
   }
 
@@ -208,13 +176,12 @@ export class DeviceQueueManager implements OnModuleInit {
       if (queue.isInactive(this.QUEUE_TIMEOUT_MS)) {
         this.queues.delete(deviceId);
         removed++;
-        this.logger.debug(`Cleaned up inactive queue for device ${deviceId}`);
       }
     }
 
     if (removed > 0) {
       this.logger.log(
-        `Cleanup completed: removed ${removed} inactive queues (${before} -> ${this.queues.size})`,
+        `Event queue cleanup: removed ${removed} inactive queues (${before} -> ${this.queues.size})`,
       );
     }
   }
@@ -224,13 +191,13 @@ export class DeviceQueueManager implements OnModuleInit {
    */
   getMetrics() {
     const activeQueues = this.queues.size;
-    let totalQueuedPositions = 0;
+    let totalQueuedEvents = 0;
     let processingQueues = 0;
     const devicesWithBacklog: string[] = [];
 
     for (const [deviceId, queue] of this.queues) {
       const size = queue.getSize();
-      totalQueuedPositions += size;
+      totalQueuedEvents += size;
 
       if (queue.isProcessing()) {
         processingQueues++;
@@ -244,12 +211,12 @@ export class DeviceQueueManager implements OnModuleInit {
     return {
       activeQueues,
       totalEnqueued: this.totalEnqueued,
-      totalQueuedPositions,
+      totalQueuedEvents,
       processingQueues,
       maxQueueSizeEver: this.maxQueueSize,
       devicesWithBacklog,
       avgQueueSize: activeQueues > 0
-        ? (totalQueuedPositions / activeQueues).toFixed(2)
+        ? (totalQueuedEvents / activeQueues).toFixed(2)
         : 0,
     };
   }
@@ -261,20 +228,18 @@ export class DeviceQueueManager implements OnModuleInit {
     const metrics = this.getMetrics();
 
     this.logger.log(
-      `Queue metrics: ${metrics.activeQueues} active queues, ` +
-      `${metrics.totalQueuedPositions} positions queued, ` +
-      `${metrics.processingQueues} processing, ` +
-      `avg size: ${metrics.avgQueueSize}, ` +
-      `max size ever: ${metrics.maxQueueSizeEver}`,
+      `Event queue metrics: ${metrics.activeQueues} active queues, ` +
+      `${metrics.totalQueuedEvents} events queued, ` +
+      `${metrics.processingQueues} processing`,
     );
 
     if (metrics.devicesWithBacklog.length > 0) {
       this.logger.warn(
-        `Devices with backlog (>5): ${metrics.devicesWithBacklog.join(', ')}`,
+        `Devices with event backlog (>5): ${metrics.devicesWithBacklog.join(', ')}`,
       );
     }
 
-    // Reset contador de enqueued para próximo período
+    // Reset contador
     this.totalEnqueued = 0;
   }
 
@@ -288,8 +253,8 @@ export class DeviceQueueManager implements OnModuleInit {
 
     const metrics = this.getMetrics();
     this.logger.log(
-      `Shutting down with ${metrics.activeQueues} active queues, ` +
-      `${metrics.totalQueuedPositions} positions still queued`,
+      `Shutting down with ${metrics.activeQueues} active event queues, ` +
+      `${metrics.totalQueuedEvents} events still queued`,
     );
   }
 }

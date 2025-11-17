@@ -12,6 +12,7 @@ import {
   TripPersistenceService,
   StopPersistenceService,
   DeviceQueueManager,
+  DeviceEventQueueManager,
 } from './services';
 
 @Module({
@@ -22,6 +23,7 @@ import {
     EventPublisherService,
     PositionProcessorService,
     DeviceQueueManager,
+    DeviceEventQueueManager,
     PositionSubscriberService,
     IgnitionSubscriberService,
     TrackerStateService,
@@ -34,6 +36,7 @@ import {
     EventPublisherService,
     PositionProcessorService,
     DeviceQueueManager,
+    DeviceEventQueueManager,
     PositionSubscriberService,
     IgnitionSubscriberService,
     TrackerStateService,

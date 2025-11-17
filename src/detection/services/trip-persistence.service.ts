@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { TripRepository } from '../../database/repositories/trip.repository';
+import { DeviceEventQueueManager } from './device-event-queue.manager';
 import {
   ITripStartedEvent,
   ITripCompletedEvent,
@@ -22,6 +23,7 @@ export class TripPersistenceService implements OnModuleInit {
   constructor(
     private readonly redisService: RedisService,
     private readonly tripRepository: TripRepository,
+    private readonly eventQueueManager: DeviceEventQueueManager,
   ) {}
 
   /**
@@ -41,16 +43,32 @@ export class TripPersistenceService implements OnModuleInit {
       // Crear cliente subscriber separado usando el método del RedisService
       this.subscriber = this.redisService.createSubscriber();
 
-      // Manejar eventos
+      // Manejar eventos - encolar para procesamiento secuencial por dispositivo
       this.subscriber.on('message', async (channel: string, message: string) => {
-        if (channel === 'trip:started') {
-          await this.handleTripStarted(message).catch((error) => {
-            this.logger.error('Error handling trip:started event', error.stack);
-          });
-        } else if (channel === 'trip:completed') {
-          await this.handleTripCompleted(message).catch((error) => {
-            this.logger.error('Error handling trip:completed event', error.stack);
-          });
+        try {
+          const event = JSON.parse(message);
+          const deviceId = event.deviceId;
+
+          if (!deviceId) {
+            this.logger.warn(`Event without deviceId on channel ${channel}`);
+            return;
+          }
+
+          // Encolar evento para procesamiento secuencial
+          if (channel === 'trip:started') {
+            await this.eventQueueManager.enqueue(deviceId, async () => {
+              await this.handleTripStarted(message);
+            });
+          } else if (channel === 'trip:completed') {
+            await this.eventQueueManager.enqueue(deviceId, async () => {
+              await this.handleTripCompleted(message);
+            });
+          }
+        } catch (error) {
+          this.logger.error(
+            `Error enqueuing event from channel ${channel}`,
+            error.stack,
+          );
         }
       });
 
