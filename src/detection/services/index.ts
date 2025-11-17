@@ -7,3 +7,4 @@ export * from './ignition-subscriber.service';
 export * from './tracker-state.service';
 export * from './trip-persistence.service';
 export * from './stop-persistence.service';
+export * from './device-queue.manager';
