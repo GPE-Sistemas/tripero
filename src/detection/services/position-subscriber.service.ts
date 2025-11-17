@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
-import { PositionProcessorService } from './position-processor.service';
+import { DeviceQueueManager } from './device-queue.manager';
 import { TrackerStateService } from './tracker-state.service';
 import {
   IPositionEvent,
@@ -24,7 +24,7 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
 
   constructor(
     private readonly redisService: RedisService,
-    private readonly positionProcessor: PositionProcessorService,
+    private readonly queueManager: DeviceQueueManager,
     private readonly trackerStateService: TrackerStateService,
   ) {}
 
@@ -160,8 +160,8 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
         ignition,
       };
 
-      // Procesar la posición
-      await this.positionProcessor.processPosition(normalizedPosition);
+      // Encolar la posición para procesamiento secuencial por dispositivo
+      await this.queueManager.enqueue(normalizedPosition.deviceId, normalizedPosition);
     } catch (error) {
       this.logger.error(
         `Error handling position message: ${message}`,
