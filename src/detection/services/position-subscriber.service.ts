@@ -3,7 +3,11 @@ import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { PositionProcessorService } from './position-processor.service';
 import { TrackerStateService } from './tracker-state.service';
-import { IPositionEvent, validatePositionEvent } from '../../interfaces';
+import {
+  IPositionEvent,
+  IPositionRejectedEvent,
+  validatePositionEventWithReason,
+} from '../../interfaces';
 
 /**
  * Servicio de suscripción a eventos de posiciones GPS
@@ -125,11 +129,16 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
       const position = JSON.parse(message);
 
       // Validar el payload
-      if (!validatePositionEvent(position)) {
+      const validation = validatePositionEventWithReason(position);
+      if (!validation.valid) {
         this.invalidCount++;
         this.logger.warn(
-          `Invalid position event received: ${JSON.stringify(position)}`,
+          `Invalid position event: ${validation.reason}. Event: ${JSON.stringify(position)}`,
         );
+
+        // Publicar evento de rechazo
+        await this.publishRejectedEvent(position, validation.reason || 'unknown');
+
         return;
       }
 
@@ -177,5 +186,36 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
       receivedCount: this.receivedCount,
       invalidCount: this.invalidCount,
     };
+  }
+
+  /**
+   * Publica un evento de rechazo de posición
+   */
+  private async publishRejectedEvent(
+    originalEvent: any,
+    reason: string,
+  ): Promise<void> {
+    try {
+      const rejectedEvent: IPositionRejectedEvent = {
+        deviceId: originalEvent.deviceId || 'unknown',
+        reason,
+        rejectedAt: Date.now(),
+        originalEvent,
+      };
+
+      await this.redisService.publish(
+        'position:rejected',
+        rejectedEvent,
+      );
+
+      this.logger.debug(
+        `Published rejection event for device ${rejectedEvent.deviceId}: ${reason}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Error publishing rejection event',
+        error.stack,
+      );
+    }
   }
 }
