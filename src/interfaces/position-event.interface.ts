@@ -216,3 +216,34 @@ export const validatePositionEvent = (event: any): event is IPositionEvent => {
 
   return true;
 };
+
+/**
+ * Evento de salida: position:rejected
+ *
+ * Canal: Redis PubSub 'position:rejected'
+ *
+ * Este evento se publica cuando una posición es rechazada por validación.
+ * Permite al sistema emisor (ej: gestion-api-trackers) enterarse de errores
+ * y tomar acciones correctivas (logging, alertas, etc.)
+ */
+export interface IPositionRejectedEvent {
+  /**
+   * Identificador del dispositivo que envió la posición inválida
+   */
+  deviceId: string;
+
+  /**
+   * Motivo del rechazo (mensaje descriptivo)
+   */
+  reason: string;
+
+  /**
+   * Timestamp del rechazo en milisegundos (Unix epoch)
+   */
+  rejectedAt: number;
+
+  /**
+   * Posición original que fue rechazada (puede contener campos inválidos)
+   */
+  originalEvent: any;
+};
