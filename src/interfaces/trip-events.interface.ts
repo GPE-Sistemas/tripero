@@ -14,6 +14,9 @@ export interface ITripStartedEvent {
     coordinates: [number, number]; // [lon, lat]
   };
   detectionMethod: 'ignition' | 'motion';
+  currentState: 'STOPPED' | 'IDLE' | 'MOVING'; // Estado actual (siempre MOVING al iniciar)
+  odometer: number; // Odómetro total en metros (incluye offset)
+  metadata?: Record<string, any>; // Metadata personalizado (ej: tenant_id, fleet_id, etc.)
 }
 
 export interface ITripCompletedEvent {
@@ -35,6 +38,9 @@ export interface ITripCompletedEvent {
     coordinates: [number, number]; // [lon, lat]
   };
   detectionMethod: 'ignition' | 'motion';
+  currentState: 'STOPPED' | 'IDLE' | 'MOVING'; // Estado actual (puede ser STOPPED o IDLE)
+  odometer: number; // Odómetro total en metros (incluye offset)
+  metadata?: Record<string, any>; // Metadata personalizado (ej: tenant_id, fleet_id, etc.)
 }
 
 export interface IStopStartedEvent {
@@ -47,6 +53,9 @@ export interface IStopStartedEvent {
     coordinates: [number, number]; // [lon, lat]
   };
   reason: 'ignition_off' | 'no_movement' | 'parking';
+  currentState: 'STOPPED' | 'IDLE' | 'MOVING'; // Estado actual (siempre IDLE)
+  odometer: number; // Odómetro total en metros (incluye offset)
+  metadata?: Record<string, any>; // Metadata personalizado (ej: tenant_id, fleet_id, etc.)
 }
 
 export interface IStopCompletedEvent {
@@ -61,4 +70,7 @@ export interface IStopCompletedEvent {
     coordinates: [number, number]; // [lon, lat]
   };
   reason: 'ignition_off' | 'no_movement' | 'parking';
+  currentState: 'STOPPED' | 'IDLE' | 'MOVING'; // Estado actual (MOVING si retoma movimiento)
+  odometer: number; // Odómetro total en metros (incluye offset)
+  metadata?: Record<string, any>; // Metadata personalizado (ej: tenant_id, fleet_id, etc.)
 }

@@ -215,13 +215,16 @@ export class TrackerStateService {
       };
     }
 
+    // Calcular odómetro con offset (GPS + offset = odómetro real)
+    const displayOdometer = state.totalOdometer + (state.odometerOffset || 0);
+
     const status: ITrackerStatus = {
       trackerId: state.trackerId,
       deviceId: state.deviceId,
 
       odometer: {
-        total: Math.round(state.totalOdometer),
-        totalKm: Math.round(state.totalOdometer / 1000),
+        total: Math.round(displayOdometer),
+        totalKm: Math.round(displayOdometer / 1000),
         currentTrip: currentTrip ? currentTrip.distance : 0,
         currentTripKm: currentTrip
           ? Math.round(currentTrip.distance / 1000)
@@ -291,6 +294,48 @@ export class TrackerStateService {
 
     await this.saveStateToRedis(trackerId, state);
     await this.persistToDb(state);
+  }
+
+  /**
+   * Setea el odómetro inicial de un tracker (usando offset)
+   * Calcula el offset necesario para que el odómetro GPS coincida con el real
+   */
+  async setOdometer(
+    trackerId: string,
+    initialOdometer: number,
+    reason?: string,
+  ): Promise<{
+    previousOdometer: number;
+    newOdometer: number;
+    odometerOffset: number;
+  }> {
+    const state = await this.getState(trackerId);
+    if (!state) {
+      throw new Error(`Tracker ${trackerId} not found`);
+    }
+
+    const previousDisplayOdometer = state.totalOdometer + (state.odometerOffset || 0);
+
+    // Calcular nuevo offset: initialOdometer - totalOdometer (GPS)
+    const newOffset = initialOdometer - state.totalOdometer;
+
+    this.logger.log(
+      `Setting odometer for ${trackerId}: GPS=${state.totalOdometer}m, ` +
+        `initialOdometer=${initialOdometer}m, offset=${newOffset}m. ` +
+        `Reason: ${reason || 'not specified'}`,
+    );
+
+    state.odometerOffset = newOffset;
+    state.updatedAt = new Date();
+
+    await this.saveStateToRedis(trackerId, state);
+    await this.persistToDb(state);
+
+    return {
+      previousOdometer: Math.round(previousDisplayOdometer),
+      newOdometer: Math.round(initialOdometer),
+      odometerOffset: Math.round(newOffset),
+    };
   }
 
   /**
@@ -397,6 +442,7 @@ export class TrackerStateService {
     await this.trackerStateRepository.upsert(state.trackerId, {
       device_id: state.deviceId,
       total_odometer: state.totalOdometer,
+      odometer_offset: state.odometerOffset,
       trip_odometer_start: state.tripOdometerStart || null,
       last_position_time: state.lastPositionTime || null,
       last_latitude: state.lastLatitude || null,
@@ -450,6 +496,7 @@ export class TrackerStateService {
       trackerId,
       deviceId: trackerId,
       totalOdometer: 0,
+      odometerOffset: 0,
       totalTripsCount: 0,
       totalDrivingTime: 0,
       totalIdleTime: 0,
@@ -470,6 +517,7 @@ export class TrackerStateService {
       trackerId: entity.tracker_id,
       deviceId: entity.device_id,
       totalOdometer: entity.total_odometer,
+      odometerOffset: entity.odometer_offset || 0,
       tripOdometerStart: entity.trip_odometer_start,
       lastPositionTime: entity.last_position_time,
       lastLatitude: entity.last_latitude,

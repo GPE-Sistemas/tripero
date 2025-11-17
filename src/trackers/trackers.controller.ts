@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { TrackerStateService } from '../detection/services';
 import type { IResetOdometer } from '../models';
+import { SetOdometerDto } from './dto';
 
 /**
  * Controller para consultar estado de trackers
@@ -227,6 +228,71 @@ export class TrackersController {
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: error.message || 'Error resetting odometer',
+          error: 'Internal Server Error',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * POST /trackers/:trackerId/odometer
+   *
+   * Setea el odómetro inicial de un tracker para que coincida con el odómetro real del vehículo
+   * Utiliza un offset que se suma al odómetro GPS
+   *
+   * Body:
+   * {
+   *   "initialOdometer": 125000,  // metros (125 km)
+   *   "reason": "vehicle_odometer_sync"
+   * }
+   */
+  @Post(':trackerId/odometer')
+  async setOdometer(
+    @Param('trackerId') trackerId: string,
+    @Body() setOdometerDto: SetOdometerDto,
+  ) {
+    try {
+      const result = await this.trackerStateService.setOdometer(
+        trackerId,
+        setOdometerDto.initialOdometer,
+        setOdometerDto.reason,
+      );
+
+      this.logger.log(
+        `Odometer set for tracker ${trackerId}: ` +
+          `previous=${result.previousOdometer}m, new=${result.newOdometer}m, ` +
+          `offset=${result.odometerOffset}m. Reason: ${setOdometerDto.reason || 'not specified'}`,
+      );
+
+      return {
+        success: true,
+        message: `Odometer set to ${result.newOdometer} meters`,
+        data: {
+          trackerId,
+          previousOdometer: result.previousOdometer,
+          previousOdometerKm: Math.round(result.previousOdometer / 1000),
+          newOdometer: result.newOdometer,
+          newOdometerKm: Math.round(result.newOdometer / 1000),
+          odometerOffset: result.odometerOffset,
+          odometerOffsetKm: Math.round(result.odometerOffset / 1000),
+          reason: setOdometerDto.reason || 'not specified',
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error setting odometer for ${trackerId}`,
+        error.stack,
+      );
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: error.message || 'Error setting odometer',
           error: 'Internal Server Error',
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

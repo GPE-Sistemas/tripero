@@ -51,6 +51,7 @@ export interface IDeviceMotionState {
   tripDistance?: number; // metros acumulados
   tripMaxSpeed?: number; // km/h
   tripStopsCount?: number;
+  tripMetadata?: Record<string, any>; // Metadata del trip (se propaga del position event)
 
   // Stop actual (si existe)
   currentStopId?: string;
@@ -58,6 +59,7 @@ export interface IDeviceMotionState {
   stopStartLat?: number;
   stopStartLon?: number;
   stopReason?: 'ignition_off' | 'no_movement' | 'parking';
+  stopMetadata?: Record<string, any>; // Metadata del stop (se propaga del position event)
 
   // Última posición
   lastTimestamp: number;

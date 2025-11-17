@@ -25,6 +25,9 @@ export class TrackerState {
   @Column({ type: 'float8', name: 'total_odometer', default: 0 })
   total_odometer: number;
 
+  @Column({ type: 'float8', name: 'odometer_offset', default: 0 })
+  odometer_offset: number;
+
   @Column({ type: 'float8', name: 'trip_odometer_start', nullable: true })
   trip_odometer_start: number | null;
 

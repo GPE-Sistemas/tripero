@@ -87,6 +87,7 @@ export class TripPersistenceService implements OnModuleInit {
         start_lat: latitude,
         start_lon: longitude,
         detection_method: event.detectionMethod,
+        metadata: event.metadata,
       });
 
       this.logger.log(
@@ -145,10 +146,7 @@ export class TripPersistenceService implements OnModuleInit {
         duration: event.duration,
         stop_count: event.stopsCount,
         is_active: false,
-        metadata: {
-          ...trip.metadata,
-          tripId: event.tripId,
-        },
+        metadata: event.metadata || trip.metadata || undefined,
       });
 
       this.logger.log(
