@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { PositionProcessorService } from './position-processor.service';
 import { TrackerStateService } from './tracker-state.service';
-import { IPositionEvent, validatePositionEvent } from '../../interfaces';
+import { IPositionEvent, validatePositionEventWithReason } from '../../interfaces';
 
 /**
  * Servicio de suscripción a eventos de posiciones GPS
@@ -125,10 +125,11 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
       const position = JSON.parse(message);
 
       // Validar el payload
-      if (!validatePositionEvent(position)) {
+      const validation = validatePositionEventWithReason(position);
+      if (!validation.valid) {
         this.invalidCount++;
         this.logger.warn(
-          `Invalid position event received: ${JSON.stringify(position)}`,
+          `Invalid position event: ${validation.reason}. Event: ${JSON.stringify(position)}`,
         );
         return;
       }
