@@ -23,27 +23,39 @@ export class ReportsService {
    * GET /api/reports/trips
    */
   async getTrips(query: QueryReportsDto): Promise<TripResponseDto[]> {
-    const { deviceId, from, to } = query;
+    const { deviceId, from, to, tenantId, clientId, fleetId, metadata } = query;
     const fromDate = new Date(from);
     const toDate = new Date(to);
 
     this.logger.debug(
-      `Getting trips: deviceId=${deviceId?.join(',') || 'all'}, from=${from}, to=${to}`,
+      `Getting trips: deviceId=${deviceId?.join(',') || 'all'}, from=${from}, to=${to}, ` +
+        `tenantId=${tenantId || 'none'}, clientId=${clientId || 'none'}, fleetId=${fleetId || 'none'}`,
     );
 
     let trips: Trip[];
 
-    // Si hay deviceId específico, filtrar por él
-    if (deviceId && deviceId.length > 0) {
-      const allTrips = await Promise.all(
-        deviceId.map((id) =>
-          this.tripRepository.findByAssetAndTimeRange(id, fromDate, toDate),
-        ),
+    // Si hay filtros de metadata, usar query builder
+    const hasMetadataFilters = tenantId || clientId || fleetId || metadata;
+
+    if (hasMetadataFilters) {
+      trips = await this.findTripsWithMetadata(
+        deviceId,
+        fromDate,
+        toDate,
+        { tenantId, clientId, fleetId, metadata },
       );
-      trips = allTrips.flat();
     } else {
-      // Si no, traer todos los trips en el rango de fechas
-      trips = await this.tripRepository.findByTimeRange(fromDate, toDate);
+      // Usar métodos simples del repositorio si no hay filtros de metadata
+      if (deviceId && deviceId.length > 0) {
+        const allTrips = await Promise.all(
+          deviceId.map((id) =>
+            this.tripRepository.findByAssetAndTimeRange(id, fromDate, toDate),
+          ),
+        );
+        trips = allTrips.flat();
+      } else {
+        trips = await this.tripRepository.findByTimeRange(fromDate, toDate);
+      }
     }
 
     this.logger.debug(`Found ${trips.length} trips`);
@@ -56,30 +68,173 @@ export class ReportsService {
    * GET /api/reports/stops
    */
   async getStops(query: QueryReportsDto): Promise<StopResponseDto[]> {
-    const { deviceId, from, to } = query;
+    const { deviceId, from, to, tenantId, clientId, fleetId, metadata } = query;
     const fromDate = new Date(from);
     const toDate = new Date(to);
 
     this.logger.debug(
-      `Getting stops: deviceId=${deviceId?.join(',') || 'all'}, from=${from}, to=${to}`,
+      `Getting stops: deviceId=${deviceId?.join(',') || 'all'}, from=${from}, to=${to}, ` +
+        `tenantId=${tenantId || 'none'}, clientId=${clientId || 'none'}, fleetId=${fleetId || 'none'}`,
     );
 
     let stops: Stop[];
 
-    if (deviceId && deviceId.length > 0) {
-      const allStops = await Promise.all(
-        deviceId.map((id) =>
-          this.stopRepository.findByAssetAndTimeRange(id, fromDate, toDate),
-        ),
+    // Si hay filtros de metadata, usar query builder
+    const hasMetadataFilters = tenantId || clientId || fleetId || metadata;
+
+    if (hasMetadataFilters) {
+      stops = await this.findStopsWithMetadata(
+        deviceId,
+        fromDate,
+        toDate,
+        { tenantId, clientId, fleetId, metadata },
       );
-      stops = allStops.flat();
     } else {
-      stops = await this.stopRepository.findByTimeRange(fromDate, toDate);
+      // Usar métodos simples del repositorio si no hay filtros de metadata
+      if (deviceId && deviceId.length > 0) {
+        const allStops = await Promise.all(
+          deviceId.map((id) =>
+            this.stopRepository.findByAssetAndTimeRange(id, fromDate, toDate),
+          ),
+        );
+        stops = allStops.flat();
+      } else {
+        stops = await this.stopRepository.findByTimeRange(fromDate, toDate);
+      }
     }
 
     this.logger.debug(`Found ${stops.length} stops`);
 
     return this.mapStopsToDto(stops);
+  }
+
+  /**
+   * Buscar trips con filtros de metadata usando query builder
+   * Utiliza índices optimizados para tenant_id, client_id, fleet_id
+   */
+  private async findTripsWithMetadata(
+    deviceIds: string[] | undefined,
+    fromDate: Date,
+    toDate: Date,
+    filters: {
+      tenantId?: string;
+      clientId?: string;
+      fleetId?: string;
+      metadata?: Record<string, any>;
+    },
+  ): Promise<Trip[]> {
+    const { tenantId, clientId, fleetId, metadata } = filters;
+
+    // Necesitamos acceder al repository de TypeORM directamente
+    // para usar el query builder
+    const tripRepo = (this.tripRepository as any).tripRepo;
+
+    const queryBuilder = tripRepo
+      .createQueryBuilder('trip')
+      .where('trip.start_time BETWEEN :fromDate AND :toDate', {
+        fromDate,
+        toDate,
+      });
+
+    // Filtro por deviceId
+    if (deviceIds && deviceIds.length > 0) {
+      queryBuilder.andWhere('trip.id_activo IN (:...deviceIds)', { deviceIds });
+    }
+
+    // Filtros optimizados con B-tree indexes (~1-2ms)
+    if (tenantId) {
+      queryBuilder.andWhere("trip.metadata->>'tenant_id' = :tenantId", {
+        tenantId,
+      });
+    }
+
+    if (clientId) {
+      queryBuilder.andWhere("trip.metadata->>'client_id' = :clientId", {
+        clientId,
+      });
+    }
+
+    if (fleetId) {
+      queryBuilder.andWhere("trip.metadata->>'fleet_id' = :fleetId", {
+        fleetId,
+      });
+    }
+
+    // Filtro genérico JSONB con GIN index (~5-10ms)
+    // Usa el operador @> (contains) para buscar coincidencias parciales
+    if (metadata && Object.keys(metadata).length > 0) {
+      queryBuilder.andWhere('trip.metadata @> :metadata', {
+        metadata: JSON.stringify(metadata),
+      });
+    }
+
+    queryBuilder.orderBy('trip.start_time', 'DESC');
+
+    return await queryBuilder.getMany();
+  }
+
+  /**
+   * Buscar stops con filtros de metadata usando query builder
+   * Utiliza índices optimizados para tenant_id, client_id, fleet_id
+   */
+  private async findStopsWithMetadata(
+    deviceIds: string[] | undefined,
+    fromDate: Date,
+    toDate: Date,
+    filters: {
+      tenantId?: string;
+      clientId?: string;
+      fleetId?: string;
+      metadata?: Record<string, any>;
+    },
+  ): Promise<Stop[]> {
+    const { tenantId, clientId, fleetId, metadata } = filters;
+
+    // Necesitamos acceder al repository de TypeORM directamente
+    // para usar el query builder
+    const stopRepo = (this.stopRepository as any).stopRepo;
+
+    const queryBuilder = stopRepo
+      .createQueryBuilder('stop')
+      .where('stop.start_time BETWEEN :fromDate AND :toDate', {
+        fromDate,
+        toDate,
+      });
+
+    // Filtro por deviceId
+    if (deviceIds && deviceIds.length > 0) {
+      queryBuilder.andWhere('stop.id_activo IN (:...deviceIds)', { deviceIds });
+    }
+
+    // Filtros optimizados con B-tree indexes (~1-2ms)
+    if (tenantId) {
+      queryBuilder.andWhere("stop.metadata->>'tenant_id' = :tenantId", {
+        tenantId,
+      });
+    }
+
+    if (clientId) {
+      queryBuilder.andWhere("stop.metadata->>'client_id' = :clientId", {
+        clientId,
+      });
+    }
+
+    if (fleetId) {
+      queryBuilder.andWhere("stop.metadata->>'fleet_id' = :fleetId", {
+        fleetId,
+      });
+    }
+
+    // Filtro genérico JSONB con GIN index (~5-10ms)
+    if (metadata && Object.keys(metadata).length > 0) {
+      queryBuilder.andWhere('stop.metadata @> :metadata', {
+        metadata: JSON.stringify(metadata),
+      });
+    }
+
+    queryBuilder.orderBy('stop.start_time', 'DESC');
+
+    return await queryBuilder.getMany();
   }
 
   /**

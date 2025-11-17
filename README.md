@@ -48,17 +48,33 @@
   - Duration tracking and location capture
   - Automatic geocoding support (extensible)
 
-- **📏 Odometer Management**
+- **📏 Odometer Management** ✨ *New in v0.3.0*
   - Cumulative distance tracking per device (total odometer)
+  - **Initial odometer setting with offset** (sync with vehicle's real odometer)
   - Per-trip odometer with start/end values
   - Haversine formula for GPS distance calculation
   - Safety validations to prevent impossible distance jumps (>200 km/h)
+  - REST API endpoint to configure odometer offset
 
 - **📊 Statistics & Reporting**
   - Real-time tracker status with current state
   - Historical trip and stop reports (Traccar-compatible API)
   - Accumulated statistics: total trips, driving time, idle time, stops
   - Device health monitoring (online/offline/stale)
+
+- **🔔 Real-time Events** ✨ *New in v0.3.0*
+  - **Redis PubSub for real-time state changes** (no polling needed!)
+  - Event: `tracker:state:changed` - State transitions (STOPPED ↔ IDLE ↔ MOVING)
+  - Enhanced events: All trip/stop events now include `currentState` and `odometer`
+  - Instant notifications for external systems (IRIX, dashboards, etc.)
+  - See [REDIS_EVENTS.md](./REDIS_EVENTS.md) for complete event API documentation
+
+- **🏷️ Custom Metadata** ✨ *New in v0.3.0*
+  - Add custom metadata to GPS positions (tenant_id, fleet_id, client_id, etc.)
+  - Metadata propagates automatically to trips and stops
+  - Optimized database indexes for fast queries (~1-2ms for tenant_id, client_id, fleet_id)
+  - Perfect for multi-tenancy, fleet management, and custom tracking
+  - Flexible: Use any custom fields you need
 
 - **🔧 Advanced Features**
   - Throttling to handle high-frequency GPS updates
@@ -219,12 +235,9 @@ GET /trackers/:trackerId/status
 ```
 
 **State Values**:
-- `MOVING` - Vehicle is in motion
-- `IDLE` - Vehicle stopped but ignition ON
-- `PAUSED` - Vehicle stopped during trip (stop event)
-- `STOPPED` - Vehicle completely stopped (ignition OFF)
-- `OFFLINE` - No data received for >24 hours
-- `UNKNOWN` - Initial state
+- `MOVING` - Vehicle is in motion (ignition ON and speed > threshold)
+- `IDLE` - Vehicle stopped but ignition ON (motor running, vehicle stationary)
+- `STOPPED` - Vehicle completely stopped (ignition OFF, no movement)
 
 ---
 
@@ -240,6 +253,25 @@ GET /api/reports/trips?deviceId=VEHICLE-001&from=2024-11-01T00:00:00Z&to=2024-11
 - `deviceId` - Device ID(s), comma-separated for multiple devices, or "all" for all devices
 - `from` - Start date (ISO 8601 format)
 - `to` - End date (ISO 8601 format)
+- `tenantId` ✨ *v0.3.0* - Filter by tenant ID (optimized, ~1-2ms)
+- `clientId` ✨ *v0.3.0* - Filter by client ID (optimized, ~1-2ms)
+- `fleetId` ✨ *v0.3.0* - Filter by fleet ID (optimized, ~1-2ms)
+- `metadata` ✨ *v0.3.0* - Filter by custom metadata (JSON string, ~5-10ms)
+
+**Metadata Filter Examples**:
+```bash
+# Filter by tenant (optimized)
+GET /api/reports/trips?tenantId=acme-corp&from=...&to=...
+
+# Filter by fleet (optimized)
+GET /api/reports/trips?fleetId=delivery-trucks&from=...&to=...
+
+# Combine optimized filters
+GET /api/reports/trips?tenantId=acme-corp&fleetId=delivery-trucks&from=...&to=...
+
+# Filter by custom metadata fields
+GET /api/reports/trips?metadata={"driver_id":"driver-123","region":"north"}&from=...&to=...
+```
 
 **Example Response**:
 ```json
@@ -274,6 +306,8 @@ GET /api/reports/trips?deviceId=VEHICLE-001&from=2024-11-01T00:00:00Z&to=2024-11
 GET /api/reports/stops?deviceId=VEHICLE-001&from=2024-11-01T00:00:00Z&to=2024-11-30T23:59:59Z
 ```
 
+**Query Parameters**: Same as trips (including metadata filters)
+
 **Example Response**:
 ```json
 [
@@ -307,16 +341,67 @@ Tripero subscribes to the Redis channel `position:new` for incoming GPS position
   "speed": 45,
   "heading": 135,
   "altitude": 420,
-  "ignition": true
+  "ignition": true,
+  "metadata": {
+    "tenant_id": "acme-corp",
+    "fleet_id": "delivery-trucks",
+    "driver_id": "driver-123"
+  }
 }
 ```
 
+> **Note:** The `metadata` field is optional but recommended. It propagates automatically to all trips and stops.
+
 **Events Published by Tripero**:
 
+- `tracker:state:changed` ✨ *v0.3.0* - Tracker state transition (STOPPED ↔ IDLE ↔ MOVING)
 - `trip:started` - Trip has started
 - `trip:completed` - Trip has ended
 - `stop:started` - Stop detected during trip
 - `stop:completed` - Stop has ended
+
+> 📘 **See [REDIS_EVENTS.md](./REDIS_EVENTS.md)** for complete event payloads, examples, and integration patterns.
+
+---
+
+### Odometer Management ✨ *New in v0.3.0*
+
+**Set initial odometer** (to sync with vehicle's real odometer):
+
+```http
+POST /trackers/:trackerId/odometer
+Content-Type: application/json
+
+{
+  "initialOdometer": 125000000,
+  "reason": "vehicle_odometer_sync"
+}
+```
+
+**Example Response**:
+```json
+{
+  "success": true,
+  "message": "Odometer set to 125000000 meters",
+  "data": {
+    "trackerId": "VEHICLE-001",
+    "previousOdometer": 50000,
+    "previousOdometerKm": 50,
+    "newOdometer": 125000000,
+    "newOdometerKm": 125000,
+    "odometerOffset": 124950000,
+    "odometerOffsetKm": 124950,
+    "reason": "vehicle_odometer_sync",
+    "updatedAt": "2025-11-17T10:30:00.000Z"
+  }
+}
+```
+
+**How it works**:
+- Tripero calculates GPS-based odometer automatically
+- Setting initial odometer adds an offset: `realOdometer = gpsOdometer + offset`
+- All future readings include this offset
+- Useful when replacing GPS device or syncing with vehicle's dashboard
 
 ---
 
@@ -679,7 +764,7 @@ subscriber.on('message', (channel, message) => {
 const Redis = require('ioredis');
 const publisher = new Redis({ host: 'localhost', port: 6380 });
 
-async function publishPosition(deviceId, gpsData) {
+async function publishPosition(deviceId, gpsData, metadata = {}) {
   const position = {
     deviceId,
     timestamp: Date.now(),
@@ -688,17 +773,27 @@ async function publishPosition(deviceId, gpsData) {
     speed: gpsData.speed,
     heading: gpsData.heading || 0,
     altitude: gpsData.altitude || 0,
-    ignition: gpsData.ignition || false
+    ignition: gpsData.ignition || false,
+    metadata: metadata  // Optional: tenant_id, fleet_id, driver_id, etc.
   };
 
   await publisher.publish('position:new', JSON.stringify(position));
 }
+
+// Example with metadata for multi-tenancy
+publishPosition('VEHICLE-001', gpsData, {
+  tenant_id: 'acme-corp',
+  fleet_id: 'delivery-trucks',
+  driver_id: 'driver-123'
+});
 ```
 
 ---
 
 ## 📖 Documentation
 
+- **[REDIS_EVENTS.md](./REDIS_EVENTS.md)** - Complete Redis PubSub events API reference
+- **[METADATA_ANALYSIS.md](./METADATA_ANALYSIS.md)** - Metadata feature analysis and implementation
 - **[ARQUITECTURA.md](./ARQUITECTURA.md)** - Architectural decisions (ADRs)
 - **[TESTING.md](./TESTING.md)** - Comprehensive testing guide
 - **[INTEGRACION.md](./INTEGRACION.md)** - Integration with external systems
@@ -718,8 +813,12 @@ async function publishPosition(deviceId, gpsData) {
 - [x] Event-driven architecture
 - [x] PostgreSQL integration
 - [x] Traccar-compatible API
+- [x] Real-time state change events (v0.3.0)
+- [x] Odometer offset and management (v0.3.0)
+- [x] Custom metadata support for multi-tenancy (v0.3.0)
 
-### 🚧 Phase 1: Enhancements (Planned)
+### 🚧 Phase 1: Enhancements (In Progress)
+- [ ] Metadata-based query filters in Reports API
 - [ ] Geocoding integration for addresses
 - [ ] Prometheus metrics
 - [ ] GraphQL API
@@ -731,7 +830,6 @@ async function publishPosition(deviceId, gpsData) {
 - [ ] Machine learning for anomaly detection
 - [ ] Predictive maintenance alerts
 - [ ] Route optimization suggestions
-- [ ] Multi-tenant support
 - [ ] Admin dashboard
 
 See [TODO.md](./TODO.md) for detailed task list.

@@ -5,6 +5,7 @@ import {
   ITripCompletedEvent,
   IStopStartedEvent,
   IStopCompletedEvent,
+  ITrackerStateChangedEvent,
 } from '../../interfaces';
 
 /**
@@ -69,6 +70,23 @@ export class EventPublisherService {
       );
     } catch (error) {
       this.logger.error('Error publishing stop:completed', error.stack);
+    }
+  }
+
+  /**
+   * Publica evento de cambio de estado del tracker
+   */
+  async publishTrackerStateChanged(
+    event: ITrackerStateChangedEvent,
+  ): Promise<void> {
+    try {
+      await this.redis.publish('tracker:state:changed', JSON.stringify(event));
+      this.logger.log(
+        `Published tracker:state:changed for device ${event.trackerId}: ` +
+          `${event.previousState} → ${event.currentState} (${event.reason})`,
+      );
+    } catch (error) {
+      this.logger.error('Error publishing tracker:state:changed', error.stack);
     }
   }
 }

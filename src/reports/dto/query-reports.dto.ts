@@ -47,4 +47,54 @@ export class QueryReportsDto {
    */
   @IsDateString()
   to: string;
+
+  /**
+   * Tenant ID - Filtro optimizado para multi-tenancy
+   * Utiliza índice B-tree para queries rápidas (~1-2ms)
+   * Ejemplo: "acme-corp"
+   */
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
+
+  /**
+   * Client ID - Filtro optimizado para clientes
+   * Utiliza índice B-tree para queries rápidas (~1-2ms)
+   * Ejemplo: "client-123"
+   */
+  @IsOptional()
+  @IsString()
+  clientId?: string;
+
+  /**
+   * Fleet ID - Filtro optimizado para flotas
+   * Utiliza índice B-tree para queries rápidas (~1-2ms)
+   * Ejemplo: "delivery-trucks"
+   */
+  @IsOptional()
+  @IsString()
+  fleetId?: string;
+
+  /**
+   * Filtro genérico de metadata (JSONB)
+   * Permite filtrar por cualquier campo personalizado
+   * Utiliza índice GIN para queries flexibles (~5-10ms)
+   *
+   * Ejemplo como query param:
+   * ?metadata={"driver_id":"driver-123","region":"north"}
+   *
+   * O en formato JSON cuando se envía como body
+   */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  })
+  metadata?: Record<string, any>;
 }

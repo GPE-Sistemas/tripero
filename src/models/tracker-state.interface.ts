@@ -10,7 +10,8 @@ export interface ITrackerState {
   deviceId: string; // Mismo que trackerId (compatibilidad)
 
   // Odómetro (en metros)
-  totalOdometer: number; // Odómetro acumulativo total
+  totalOdometer: number; // Odómetro acumulativo total (GPS-based)
+  odometerOffset: number; // Offset para sincronizar con odómetro real del vehículo
   tripOdometerStart?: number; // Odómetro cuando empezó el trip actual
 
   // Última posición conocida
@@ -117,4 +118,12 @@ export interface ITrackerStatus {
 export interface IResetOdometer {
   newValue: number; // nuevo valor en metros
   reason: string; // motivo del reset
+}
+
+/**
+ * DTO para setear odómetro inicial (con offset)
+ */
+export interface ISetOdometer {
+  initialOdometer: number; // valor del odómetro real del vehículo en metros
+  reason?: string; // motivo del ajuste
 }

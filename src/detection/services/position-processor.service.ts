@@ -4,7 +4,8 @@ import {
   ITripStartedEvent,
   ITripCompletedEvent,
   IStopStartedEvent,
-  IStopCompletedEvent
+  IStopCompletedEvent,
+  ITrackerStateChangedEvent,
 } from '../../interfaces';
 import { StateMachineService } from './state-machine.service';
 import { DeviceStateService } from './device-state.service';
@@ -82,8 +83,10 @@ export class PositionProcessorService {
       // 6. Ejecutar acciones (publicar eventos)
       await this.executeActions(position, result);
 
-      // 6. Log de transición si ocurrió
+      // 7. Publicar evento de cambio de estado si ocurrió transición
       if (result.transitionOccurred) {
+        await this.publishStateChangeEvent(position, result);
+
         this.logger.log(
           `State transition for device ${position.deviceId}: ` +
             `${result.previousState} → ${result.newState} ` +
@@ -118,6 +121,12 @@ export class PositionProcessorService {
     const { actions, updatedState } = result;
 
     try {
+      // Obtener tracker state para incluir odómetro con offset en eventos
+      const trackerState = await this.trackerState.getState(position.deviceId);
+      const displayOdometer = trackerState
+        ? trackerState.totalOdometer + (trackerState.odometerOffset || 0)
+        : 0;
+
       // IMPORTANTE: Finalizar trip ANTES de iniciar nuevo para evitar race conditions
       // Usamos previousTrip cuando está disponible (auto-close) para tener los datos correctos
 
@@ -135,6 +144,7 @@ export class PositionProcessorService {
         updatedState.tripDistance = undefined;
         updatedState.tripMaxSpeed = undefined;
         updatedState.tripStopsCount = undefined;
+        updatedState.tripMetadata = undefined;
 
         await this.deviceState.saveDeviceState(updatedState);
       }
@@ -174,6 +184,9 @@ export class PositionProcessorService {
             coordinates: [updatedState.lastLon, updatedState.lastLat],
           },
           detectionMethod: position.ignition ? 'ignition' : 'motion',
+          currentState: (updatedState.currentMotionState || 'STOPPED') as 'STOPPED' | 'IDLE' | 'MOVING',
+          odometer: Math.round(displayOdometer),
+          metadata: updatedState.tripMetadata,
         };
 
         await this.eventPublisher.publishTripCompleted(event);
@@ -194,12 +207,16 @@ export class PositionProcessorService {
         updatedState.tripDistance = undefined;
         updatedState.tripMaxSpeed = undefined;
         updatedState.tripStopsCount = undefined;
+        updatedState.tripMetadata = undefined;
 
         await this.deviceState.saveDeviceState(updatedState);
       }
 
       // Iniciar trip (DESPUÉS de finalizar el anterior para evitar race conditions)
       if (actions.startTrip && updatedState.currentTripId) {
+        // Guardar metadata del position en el estado para cuando se complete el trip
+        updatedState.tripMetadata = position.metadata;
+
         const event: ITripStartedEvent = {
           tripId: updatedState.currentTripId,
           deviceId: position.deviceId,
@@ -212,6 +229,9 @@ export class PositionProcessorService {
             ],
           },
           detectionMethod: position.ignition ? 'ignition' : 'motion',
+          currentState: 'MOVING', // Siempre MOVING al iniciar trip
+          odometer: Math.round(displayOdometer),
+          metadata: position.metadata,
         };
 
         await this.eventPublisher.publishTripStarted(event);
@@ -236,6 +256,9 @@ export class PositionProcessorService {
           reason = 'parking';
         }
 
+        // Guardar metadata del position o usar metadata del trip si existe
+        const stopMetadata = position.metadata || updatedState.tripMetadata;
+
         const event: IStopStartedEvent = {
           stopId,
           tripId: updatedState.currentTripId,
@@ -246,6 +269,9 @@ export class PositionProcessorService {
             coordinates: [position.longitude, position.latitude],
           },
           reason,
+          currentState: 'IDLE', // Siempre IDLE al iniciar stop
+          odometer: Math.round(displayOdometer),
+          metadata: stopMetadata,
         };
 
         await this.eventPublisher.publishStopStarted(event);
@@ -256,6 +282,7 @@ export class PositionProcessorService {
         updatedState.stopStartLat = position.latitude;
         updatedState.stopStartLon = position.longitude;
         updatedState.stopReason = reason;
+        updatedState.stopMetadata = stopMetadata;
         await this.deviceState.saveDeviceState(updatedState);
 
         this.logger.debug(
@@ -283,6 +310,9 @@ export class PositionProcessorService {
             ],
           },
           reason: updatedState.stopReason || 'no_movement',
+          currentState: (updatedState.currentMotionState || 'MOVING') as 'STOPPED' | 'IDLE' | 'MOVING',
+          odometer: Math.round(displayOdometer),
+          metadata: updatedState.stopMetadata,
         };
 
         await this.eventPublisher.publishStopCompleted(event);
@@ -298,6 +328,7 @@ export class PositionProcessorService {
         updatedState.stopStartLat = undefined;
         updatedState.stopStartLon = undefined;
         updatedState.stopReason = undefined;
+        updatedState.stopMetadata = undefined;
 
         await this.deviceState.saveDeviceState(updatedState);
 
@@ -308,6 +339,98 @@ export class PositionProcessorService {
     } catch (error) {
       this.logger.error(
         `Error executing actions for device ${position.deviceId}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Publica evento de cambio de estado del tracker
+   */
+  private async publishStateChangeEvent(
+    position: IPositionEvent,
+    result: any,
+  ): Promise<void> {
+    try {
+      // Obtener el tracker state para conocer el odómetro con offset
+      const trackerState = await this.trackerState.getState(position.deviceId);
+      if (!trackerState) {
+        this.logger.warn(
+          `Cannot publish state change event: tracker state not found for ${position.deviceId}`,
+        );
+        return;
+      }
+
+      // Obtener el device motion state para información del trip actual
+      const deviceState = result.updatedState;
+
+      // Calcular odómetro con offset
+      const displayOdometer = trackerState.totalOdometer + (trackerState.odometerOffset || 0);
+      const totalKm = Math.round(displayOdometer / 1000);
+
+      // Calcular edad de la última posición
+      const now = Date.now();
+      const age = Math.floor((now - position.timestamp) / 1000);
+
+      // Construir información del odómetro
+      const odometerInfo: any = {
+        total: Math.round(displayOdometer),
+        totalKm,
+      };
+
+      // Agregar info del trip actual si existe
+      if (deviceState.currentTripId && deviceState.tripDistance !== undefined) {
+        odometerInfo.currentTrip = Math.round(deviceState.tripDistance);
+        odometerInfo.currentTripKm = Math.round(deviceState.tripDistance / 1000);
+      }
+
+      // Construir información del trip actual (si existe)
+      let currentTripInfo: any = undefined;
+      if (deviceState.currentTripId && deviceState.tripStartTime) {
+        const tripDuration = Math.floor((now - deviceState.tripStartTime) / 1000);
+        const tripDistance = deviceState.tripDistance || 0;
+        const avgSpeed = tripDuration > 0
+          ? Math.round((tripDistance / tripDuration) * 3.6)
+          : 0;
+
+        currentTripInfo = {
+          tripId: deviceState.currentTripId,
+          startTime: new Date(deviceState.tripStartTime).toISOString(),
+          duration: tripDuration,
+          distance: Math.round(tripDistance),
+          avgSpeed,
+          maxSpeed: deviceState.tripMaxSpeed || 0,
+          odometerAtStart: Math.round(
+            (trackerState.tripOdometerStart || 0) + (trackerState.odometerOffset || 0)
+          ),
+        };
+      }
+
+      const event: ITrackerStateChangedEvent = {
+        trackerId: position.deviceId,
+        deviceId: position.deviceId,
+        previousState: result.previousState as 'STOPPED' | 'IDLE' | 'MOVING',
+        currentState: result.newState as 'STOPPED' | 'IDLE' | 'MOVING',
+        timestamp: new Date(position.timestamp).toISOString(),
+        reason: result.reason,
+        odometer: odometerInfo,
+        lastPosition: {
+          timestamp: new Date(position.timestamp).toISOString(),
+          latitude: position.latitude,
+          longitude: position.longitude,
+          speed: position.speed,
+          ignition: position.ignition,
+          heading: position.heading,
+          altitude: position.altitude,
+          age,
+        },
+        currentTrip: currentTripInfo,
+      };
+
+      await this.eventPublisher.publishTrackerStateChanged(event);
+    } catch (error) {
+      this.logger.error(
+        `Error publishing state change event for ${position.deviceId}`,
         error.stack,
       );
     }
