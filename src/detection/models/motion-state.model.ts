@@ -117,7 +117,7 @@ export const DEFAULT_THRESHOLDS: IDetectionThresholds = {
   minMovingSpeed: 5, // km/h
   minTripDistance: 100, // metros
   minTripDuration: 60, // 1 minuto
-  minStopDuration: 180, // 3 minutos
+  minStopDuration: 300, // 5 minutos (igual que Traccar) - duración mínima para segmentar trips
   maxGapDuration: 600, // 10 minutos
   positionBufferSize: 300, // últimas 300 posiciones (~5 minutos a 1 pos/seg)
 };
