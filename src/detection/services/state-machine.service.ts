@@ -110,18 +110,19 @@ export class StateMachineService {
     }
 
     // Finalizar stop si es necesario
+    // NOTA: NO limpiar datos del stop aquí - position-processor lo hará después de publicar el evento
     if (actions.endStop && updatedState.currentStopId) {
       // Incrementar contador de stops si estamos dentro de un trip
       if (updatedState.currentTripId) {
         updatedState.tripStopsCount = (updatedState.tripStopsCount || 0) + 1;
       }
 
-      // Limpiar estado de stop
-      updatedState.currentStopId = undefined;
-      updatedState.stopStartTime = undefined;
-      updatedState.stopStartLat = undefined;
-      updatedState.stopStartLon = undefined;
-      updatedState.stopReason = undefined;
+      // NO limpiar datos aquí - position-processor necesita esta info para el evento
+      // updatedState.currentStopId = undefined;
+      // updatedState.stopStartTime = undefined;
+      // updatedState.stopStartLat = undefined;
+      // updatedState.stopStartLon = undefined;
+      // updatedState.stopReason = undefined;
     }
 
     // Inicializar stop si es necesario
@@ -353,70 +354,79 @@ export class StateMachineService {
       endStop: false,
     };
 
-    // STOPPED/IDLE → MOVING: Iniciar trip
+    // STOPPED/IDLE → MOVING: Evaluar si iniciar nuevo trip
     if (
       (previousState === MotionState.STOPPED ||
         previousState === MotionState.IDLE) &&
       newState === MotionState.MOVING
     ) {
-      // Si había un trip activo previo, finalizarlo antes de crear uno nuevo
-      // Esto previene la acumulación de trips sin cerrar cuando los dispositivos
-      // solo reportan transiciones de velocidad sin eventos de ignición
-      if (updatedState.currentTripId) {
-        const tripDuration =
-          (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) / 1000;
-        const tripDistance = updatedState.tripDistance || 0;
+      // Calcular duración del stop actual (si existe)
+      const stopDuration =
+        updatedState.currentStopId && updatedState.stopStartTime
+          ? (updatedState.lastTimestamp - updatedState.stopStartTime) / 1000
+          : 0;
 
-        // Validar si el trip cumple con los mínimos para ser guardado
-        if (
-          tripDuration >= this.thresholds.minTripDuration &&
-          tripDistance >= this.thresholds.minTripDistance
-        ) {
-          actions.endTrip = true;
-          this.logger.log(
-            `Auto-closing previous trip for device ${updatedState.deviceId} on new trip start: duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m`,
-          );
-        } else {
-          // Trip muy corto, marcarlo para cerrar sin guardar
-          actions.endTrip = true;
-          this.logger.debug(
-            `Auto-discarding short trip for device ${updatedState.deviceId} on new trip start: duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m`,
-          );
+      // Solo crear nuevo trip si:
+      // 1. No hay trip activo (primer trip del dispositivo), O
+      // 2. El stop duró >= minStopDuration (5 min por defecto - igual que Traccar)
+      //
+      // Esto evita sobre-segmentación de trips por paradas cortas (ej: semáforos, entregas rápidas, etc.)
+      const shouldStartNewTrip =
+        !updatedState.currentTripId ||
+        stopDuration >= this.thresholds.minStopDuration;
+
+      if (shouldStartNewTrip) {
+        // Si había un trip activo previo, finalizarlo antes de crear uno nuevo
+        if (updatedState.currentTripId) {
+          const tripDuration =
+            (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) /
+            1000;
+          const tripDistance = updatedState.tripDistance || 0;
+
+          // Validar si el trip cumple con los mínimos para ser guardado
+          if (
+            tripDuration >= this.thresholds.minTripDuration &&
+            tripDistance >= this.thresholds.minTripDistance
+          ) {
+            actions.endTrip = true;
+            this.logger.log(
+              `Closing trip for device ${updatedState.deviceId} after ${Math.round(stopDuration)}s stop: duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m`,
+            );
+          } else {
+            // Trip muy corto, marcarlo para cerrar sin guardar
+            actions.discardTrip = true;
+            this.logger.debug(
+              `Discarding short trip for device ${updatedState.deviceId}: duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m`,
+            );
+          }
         }
+
+        actions.startTrip = true;
+        this.logger.log(
+          `Starting new trip for device ${updatedState.deviceId} after ${Math.round(stopDuration)}s stop (>= ${this.thresholds.minStopDuration}s threshold)`,
+        );
+      } else {
+        // Stop muy corto - NO crear nuevo trip, continuar el actual
+        this.logger.debug(
+          `Continuing trip for device ${updatedState.deviceId} after short ${Math.round(stopDuration)}s stop (< ${this.thresholds.minStopDuration}s threshold)`,
+        );
       }
 
-      actions.startTrip = true;
-
-      // Si había un stop activo, finalizarlo
+      // Siempre finalizar el stop (sea corto o largo) para evitar stops activos acumulados
       if (updatedState.currentStopId) {
         actions.endStop = true;
       }
     }
 
-    // MOVING → STOPPED: Finalizar trip e iniciar stop
+    // MOVING → STOPPED: Iniciar stop (NO finalizar trip aún)
+    // El trip se finalizará cuando se reanude el movimiento solo si el stop duró >= minStopDuration
     if (previousState === MotionState.MOVING && newState === MotionState.STOPPED) {
-      const tripDuration =
-        (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) / 1000;
-      const tripDistance = updatedState.tripDistance || 0;
-
-      if (
-        tripDuration >= this.thresholds.minTripDuration &&
-        tripDistance >= this.thresholds.minTripDistance
-      ) {
-        actions.endTrip = true;
-        this.logger.log(
-          `Trip completed for device ${updatedState.deviceId}: duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m`,
-        );
-      } else {
-        // Trip muy corto, descartarlo silenciosamente
-        this.logger.debug(
-          `Trip too short for device ${updatedState.deviceId}, discarding: duration=${tripDuration.toFixed(1)}s (min=${this.thresholds.minTripDuration}s), distance=${Math.round(tripDistance)}m (min=${this.thresholds.minTripDistance}m)`,
-        );
-        actions.discardTrip = true; // Limpiar estado sin publicar evento
-      }
-
-      // Iniciar stop por ignición OFF
+      // Iniciar stop - el trip continúa abierto hasta que se determine si el stop es lo suficientemente largo
       actions.startStop = true;
+
+      this.logger.debug(
+        `Vehicle stopped for device ${updatedState.deviceId}, trip continues (will close if stop >= ${this.thresholds.minStopDuration}s)`,
+      );
     }
 
     // MOVING → IDLE: Iniciar stop (dentro de trip, motor encendido pero sin movimiento)
