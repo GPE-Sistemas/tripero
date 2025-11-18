@@ -183,6 +183,19 @@ export class TripRepository {
     };
   }
 
+  async findOrphanTrips(hoursWithoutUpdate: number): Promise<Trip[]> {
+    const cutoffTime = new Date();
+    cutoffTime.setHours(cutoffTime.getHours() - hoursWithoutUpdate);
+
+    return await this.tripRepo.find({
+      where: {
+        is_active: true,
+      },
+    }).then(trips =>
+      trips.filter(trip => trip.updated_at < cutoffTime)
+    );
+  }
+
   async deleteOldTrips(olderThan: Date): Promise<number> {
     const result = await this.tripRepo.delete({
       start_time: LessThanOrEqual(olderThan),

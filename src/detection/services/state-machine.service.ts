@@ -470,18 +470,56 @@ export class StateMachineService {
     position: IPositionEvent,
     currentState: IDeviceMotionState,
   ): IStateTransitionResult {
-    // Si había trip activo, cerrarlo
+    // Calcular duración del stop actual (si existe)
+    const stopDuration =
+      currentState.currentStopId && currentState.stopStartTime
+        ? (position.timestamp - currentState.stopStartTime) / 1000
+        : 0;
+
+    // Determinar si debemos cerrar el trip
+    // Solo cerrarlo si:
+    // 1. Hay un trip activo Y
+    // 2. El stop duró >= minStopDuration (5 min por defecto)
+    //
+    // Esto evita cerrar trips prematuramente por gaps de comunicación
+    // cuando el vehículo estaba en un stop corto (ej: semáforo, entrega rápida)
+    const shouldEndTrip =
+      !!currentState.currentTripId &&
+      stopDuration >= this.thresholds.minStopDuration;
+
     const actions: IStateTransitionResult['actions'] = {
-      endTrip: !!currentState.currentTripId,
+      endTrip: shouldEndTrip,
       discardTrip: false,
       startTrip: false,
       updateTrip: false,
       startStop: false,
-      endStop: false,
+      endStop: !!currentState.currentStopId, // Cerrar stop si existe
     };
+
+    if (shouldEndTrip) {
+      this.logger.log(
+        `Closing trip for device ${position.deviceId} after ${Math.round(position.timestamp - currentState.lastTimestamp) / 1000}s gap: stop was ${Math.round(stopDuration)}s (>= ${this.thresholds.minStopDuration}s threshold)`,
+      );
+    } else if (currentState.currentTripId) {
+      this.logger.debug(
+        `Keeping trip open for device ${position.deviceId} after ${Math.round(position.timestamp - currentState.lastTimestamp) / 1000}s gap: stop was ${Math.round(stopDuration)}s (< ${this.thresholds.minStopDuration}s threshold)`,
+      );
+    }
 
     // Reiniciar como si fuera primera posición
     const firstPosResult = this.handleFirstPosition(position);
+
+    // Si decidimos NO cerrar el trip, restaurar los datos del trip en el estado
+    if (!shouldEndTrip && currentState.currentTripId) {
+      firstPosResult.updatedState.currentTripId = currentState.currentTripId;
+      firstPosResult.updatedState.tripStartTime = currentState.tripStartTime;
+      firstPosResult.updatedState.tripStartLat = currentState.tripStartLat;
+      firstPosResult.updatedState.tripStartLon = currentState.tripStartLon;
+      firstPosResult.updatedState.tripDistance = currentState.tripDistance;
+      firstPosResult.updatedState.tripMaxSpeed = currentState.tripMaxSpeed;
+      firstPosResult.updatedState.tripStopsCount = currentState.tripStopsCount;
+      firstPosResult.updatedState.tripMetadata = currentState.tripMetadata;
+    }
 
     return {
       ...firstPosResult,
