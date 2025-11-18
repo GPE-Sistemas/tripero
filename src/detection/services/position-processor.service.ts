@@ -165,14 +165,31 @@ export class PositionProcessorService {
 
         const tripDuration = (updatedState.lastTimestamp - tripData.startTime) / 1000;
 
+        // CRÍTICO: Calcular distancia del trip desde el odómetro global del TrackerState
+        // Esto incluye TODA la distancia recorrida durante el trip, incluso durante stops
+        // El state-machine solo acumula distancia cuando hay tripId activo,
+        // pero el TrackerState acumula SIEMPRE, resolviendo el bug de pérdida de distancia
+        let tripDistance = tripData.distance; // Fallback al valor anterior
+        if (trackerState && trackerState.tripOdometerStart !== undefined) {
+          tripDistance = trackerState.totalOdometer - trackerState.tripOdometerStart;
+          this.logger.log(
+            `Trip ${tripData.tripId} distance: state-machine=${tripData.distance}m, ` +
+            `odometer-based=${tripDistance}m (diff=${tripDistance - tripData.distance}m)`,
+          );
+        } else {
+          this.logger.warn(
+            `TrackerState not available for ${position.deviceId}, using state-machine distance`,
+          );
+        }
+
         const event: ITripCompletedEvent = {
           tripId: tripData.tripId,
           deviceId: position.deviceId,
           startTime: new Date(tripData.startTime).toISOString(),
           endTime: new Date(updatedState.lastTimestamp).toISOString(),
           duration: Math.round(tripDuration),
-          distance: Math.round(tripData.distance),
-          avgSpeed: this.calculateAvgSpeed(tripData.distance, tripDuration),
+          distance: Math.round(tripDistance), // Usar odómetro global
+          avgSpeed: this.calculateAvgSpeed(tripDistance, tripDuration), // Recalcular con distancia correcta
           maxSpeed: Math.round(tripData.maxSpeed),
           stopsCount: tripData.stopsCount,
           startLocation: {

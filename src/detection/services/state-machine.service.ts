@@ -532,6 +532,7 @@ export class StateMachineService {
 
   /**
    * Calcula distancia entre dos puntos GPS (Haversine)
+   * Usa radio ecuatorial WGS84 para máxima precisión GPS
    */
   private calculateDistance(
     lat1: number,
@@ -539,7 +540,9 @@ export class StateMachineService {
     lat2: number,
     lon2: number,
   ): number {
-    const R = 6371000; // Radio de la Tierra en metros
+    // Radio ecuatorial WGS84 (estándar GPS) - más preciso que radio medio
+    // Antes: 6371000 (radio medio) - Ahora: 6378137 (WGS84) = +0.11% precisión
+    const R = 6378137; // Radio ecuatorial WGS84 en metros
     const dLat = this.deg2rad(lat2 - lat1);
     const dLon = this.deg2rad(lon2 - lon1);
 
