@@ -27,6 +27,25 @@ export class Trip {
   @Column({ type: 'float8', default: 0 })
   distance: number;
 
+  @Column({ type: 'float8', name: 'distance_original', nullable: true })
+  distance_original: number | null;
+
+  @Column({ type: 'float8', name: 'distance_linear', nullable: true })
+  distance_linear: number | null;
+
+  @Column({ type: 'float8', name: 'route_linear_ratio', nullable: true })
+  route_linear_ratio: number | null;
+
+  @Column({ type: 'float8', name: 'operation_area_diameter', nullable: true })
+  operation_area_diameter: number | null;
+
+  @Column({ type: 'varchar', length: 50, name: 'quality_flag', nullable: true })
+  @Index()
+  quality_flag: string | null;
+
+  @Column({ type: 'jsonb', name: 'quality_metadata', nullable: true })
+  quality_metadata: Record<string, any> | null;
+
   @Column({ type: 'float8', name: 'max_speed', default: 0 })
   max_speed: number;
 

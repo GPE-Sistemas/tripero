@@ -6,6 +6,7 @@ import {
   ITripStartedEvent,
   ITripCompletedEvent,
 } from '../../interfaces/trip-events.interface';
+import { TripQualityAnalyzerService } from './trip-quality-analyzer.service';
 
 /**
  * Servicio encargado de escuchar eventos de trips
@@ -24,6 +25,7 @@ export class TripPersistenceService implements OnModuleInit {
     private readonly redisService: RedisService,
     private readonly tripRepository: TripRepository,
     private readonly eventQueueManager: DeviceEventQueueManager,
+    private readonly tripQualityAnalyzer: TripQualityAnalyzerService,
   ) {}
 
   /**
@@ -219,13 +221,61 @@ export class TripPersistenceService implements OnModuleInit {
 
       // Extraer lat/lon del formato GeoJSON [lon, lat]
       const [endLongitude, endLatitude] = event.endLocation.coordinates;
+      const [startLongitude, startLatitude] = [trip.start_lon, trip.start_lat];
 
-      // Actualizar con datos finales
+      // Analizar calidad del trip
+      const qualityAnalysis = this.tripQualityAnalyzer.analyzeTripQuality(
+        startLatitude,
+        startLongitude,
+        endLatitude,
+        endLongitude,
+        event.distance,
+        // TODO: Pasar posiciones intermedias si están disponibles en event.routePoints
+      );
+
+      // Calcular distancia ajustada si se recomienda corrección
+      let finalDistance = event.distance;
+      let distanceOriginal = event.distance;
+      let qualityFlag = qualityAnalysis.qualityFlag;
+
+      if (
+        qualityAnalysis.operationArea.recommendedCorrection < 1.0 &&
+        (qualityAnalysis.operationArea.isSmallArea || qualityAnalysis.tripRatio > 5)
+      ) {
+        finalDistance = event.distance * qualityAnalysis.operationArea.recommendedCorrection;
+        qualityFlag = qualityAnalysis.qualityFlag;
+
+        this.logger.warn(
+          `Trip ${event.tripId} adjusted: ` +
+            `original=${event.distance.toFixed(0)}m, ` +
+            `adjusted=${finalDistance.toFixed(0)}m, ` +
+            `area=${qualityAnalysis.operationArea.boundingBoxDiameter.toFixed(0)}m, ` +
+            `ratio=${qualityAnalysis.tripRatio.toFixed(2)}, ` +
+            `correction_factor=${qualityAnalysis.operationArea.recommendedCorrection.toFixed(2)}`,
+        );
+      }
+
+      // Actualizar con datos finales y métricas de calidad
       await this.tripRepository.update(trip.id, {
         end_time: new Date(event.endTime),
         end_lat: endLatitude,
         end_lon: endLongitude,
-        distance: event.distance,
+        distance: finalDistance,
+        distance_original: distanceOriginal,
+        distance_linear: qualityAnalysis.linearDistance,
+        route_linear_ratio: qualityAnalysis.tripRatio,
+        operation_area_diameter: qualityAnalysis.operationArea.boundingBoxDiameter,
+        quality_flag: qualityFlag,
+        quality_metadata: {
+          analysisMessage: qualityAnalysis.message,
+          recommendedCorrection: qualityAnalysis.operationArea.recommendedCorrection,
+          correctionApplied: finalDistance !== distanceOriginal,
+          isSmallArea: qualityAnalysis.operationArea.isSmallArea,
+          isVerySmallArea: qualityAnalysis.operationArea.isVerySmallArea,
+          centerPoint: qualityAnalysis.operationArea.centerPoint,
+          // Incluir metadata de segmentos si está disponible en el evento
+          ...(event.metadata?.tripQualityMetrics || {}),
+        },
         max_speed: event.maxSpeed,
         avg_speed: event.avgSpeed,
         duration: event.duration,
@@ -236,7 +286,8 @@ export class TripPersistenceService implements OnModuleInit {
 
       this.logger.log(
         `Trip ${trip.id} completado para device ${event.deviceId}: ` +
-          `${event.distance}m en ${event.duration}s`,
+          `${finalDistance.toFixed(0)}m en ${event.duration}s ` +
+          `(quality: ${qualityFlag})`,
       );
     } catch (error) {
       this.logger.error(

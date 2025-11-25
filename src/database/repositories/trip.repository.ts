@@ -18,6 +18,12 @@ export interface IUpdateTripData {
   end_lat?: number;
   end_lon?: number;
   distance?: number;
+  distance_original?: number;
+  distance_linear?: number;
+  route_linear_ratio?: number;
+  operation_area_diameter?: number;
+  quality_flag?: string;
+  quality_metadata?: Record<string, any>;
   max_speed?: number;
   avg_speed?: number;
   duration?: number;
