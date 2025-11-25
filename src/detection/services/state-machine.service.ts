@@ -7,6 +7,7 @@ import {
   DEFAULT_THRESHOLDS,
 } from '../models';
 import { IPositionEvent } from '../../interfaces';
+import { DistanceValidatorService } from './distance-validator.service';
 
 /**
  * Resultado de procesar una posición
@@ -46,6 +47,8 @@ export interface IStateTransitionResult {
 export class StateMachineService {
   private readonly logger = new Logger(StateMachineService.name);
   private readonly thresholds: IDetectionThresholds = DEFAULT_THRESHOLDS;
+
+  constructor(private readonly distanceValidator: DistanceValidatorService) {}
 
   /**
    * Procesa una nueva posición y determina el nuevo estado
@@ -321,12 +324,64 @@ export class StateMachineService {
 
     // Si hay trip activo, actualizar métricas
     if (currentState.currentTripId) {
-      // Acumular distancia de todos los segmentos del trip, incluyendo el final
-      updatedState.tripDistance = (currentState.tripDistance || 0) + distance;
+      // Validar segmento GPS antes de acumular distancia
+      const validation = this.distanceValidator.validateSegment(
+        {
+          lat: currentState.lastLat,
+          lon: currentState.lastLon,
+          timestamp: currentState.lastTimestamp,
+          speed: currentState.lastSpeed,
+          ignition: currentState.lastIgnition,
+        },
+        {
+          lat: position.latitude,
+          lon: position.longitude,
+          timestamp: position.timestamp,
+          speed: position.speed,
+          ignition: position.ignition ?? false,
+        },
+        {
+          startLat: currentState.tripStartLat || currentState.lastLat,
+          startLon: currentState.tripStartLon || currentState.lastLon,
+          currentDistance: currentState.tripDistance || 0,
+          startTime: currentState.tripStartTime || currentState.lastTimestamp,
+        },
+      );
+
+      // Usar distancia ajustada (después de aplicar correcciones)
+      updatedState.tripDistance = (currentState.tripDistance || 0) + validation.adjustedDistance;
+
       updatedState.tripMaxSpeed = Math.max(
         currentState.tripMaxSpeed || 0,
         position.speed,
       );
+
+      // Inicializar o actualizar metadata de calidad del trip
+      if (!updatedState.tripQualityMetrics) {
+        updatedState.tripQualityMetrics = {
+          segmentsTotal: 0,
+          segmentsAdjusted: 0,
+          originalDistance: 0,
+          adjustedDistance: 0,
+          anomalies: [],
+        };
+      }
+
+      updatedState.tripQualityMetrics.segmentsTotal++;
+      updatedState.tripQualityMetrics.originalDistance += validation.originalDistance;
+      updatedState.tripQualityMetrics.adjustedDistance += validation.adjustedDistance;
+
+      // Si el segmento fue ajustado o es inválido, registrar anomalía
+      if (!validation.isValid || validation.adjustedDistance !== validation.originalDistance) {
+        updatedState.tripQualityMetrics.segmentsAdjusted++;
+        updatedState.tripQualityMetrics.anomalies.push({
+          timestamp: position.timestamp,
+          reason: validation.reason,
+          originalDistance: validation.originalDistance,
+          adjustedDistance: validation.adjustedDistance,
+          ratio: validation.metadata.routeLinearRatio,
+        });
+      }
     }
 
     // Si cambió el estado, actualizar stateStartTime

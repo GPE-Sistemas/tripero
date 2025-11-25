@@ -9,3 +9,5 @@ export * from './trip-persistence.service';
 export * from './stop-persistence.service';
 export * from './device-queue.manager';
 export * from './device-event-queue.manager';
+export * from './distance-validator.service';
+export * from './trip-quality-analyzer.service';

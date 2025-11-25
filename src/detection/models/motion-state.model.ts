@@ -52,6 +52,21 @@ export interface IDeviceMotionState {
   tripMaxSpeed?: number; // km/h
   tripStopsCount?: number;
   tripMetadata?: Record<string, any>; // Metadata del trip (se propaga del position event)
+  tripQualityMetrics?: {
+    // Metadata de calidad para el trip actual
+    segmentsTotal: number; // Total de segmentos GPS procesados
+    segmentsAdjusted: number; // Segmentos que fueron ajustados
+    originalDistance: number; // Distancia total sin ajustes
+    adjustedDistance: number; // Distancia total con ajustes
+    anomalies: Array<{
+      // Anomalías detectadas
+      timestamp: number;
+      reason?: string;
+      originalDistance: number;
+      adjustedDistance: number;
+      ratio: number;
+    }>;
+  };
 
   // Stop actual (si existe)
   currentStopId?: string;
