@@ -191,6 +191,9 @@ export class TripPersistenceService implements OnModuleInit {
   /**
    * Maneja evento trip:completed
    * Actualiza el trip con datos finales
+   *
+   * NOTA: La distancia ya viene corregida por ruido GPS desde StateMachine.
+   * NO aplicamos correcciones adicionales aquí.
    */
   private async handleTripCompleted(message: string): Promise<void> {
     try {
@@ -201,7 +204,6 @@ export class TripPersistenceService implements OnModuleInit {
       );
 
       // Buscar trip por ID directo para evitar race conditions
-      // cuando hay múltiples trips sucesivos
       const trip = await this.tripRepository.findById(event.tripId);
 
       if (!trip) {
@@ -211,7 +213,7 @@ export class TripPersistenceService implements OnModuleInit {
         return;
       }
 
-      // Verificar que el trip pertenece al dispositivo correcto (seguridad)
+      // Verificar que el trip pertenece al dispositivo correcto
       if (trip.id_activo !== event.deviceId) {
         this.logger.error(
           `Trip ${event.tripId} pertenece a device ${trip.id_activo}, no a ${event.deviceId}`,
@@ -223,37 +225,27 @@ export class TripPersistenceService implements OnModuleInit {
       const [endLongitude, endLatitude] = event.endLocation.coordinates;
       const [startLongitude, startLatitude] = [trip.start_lon, trip.start_lat];
 
-      // Analizar calidad del trip
+      // Extraer métricas del contexto del trip (vienen en metadata)
+      const tripMetrics = event.metadata?.tripQualityMetrics || {};
+      const maxDistanceFromOrigin = event.metadata?.maxDistanceFromOrigin || 0;
+      const boundingBoxDiameter = event.metadata?.boundingBoxDiameter || 0;
+
+      // Analizar calidad del trip (solo métricas, SIN correcciones)
       const qualityAnalysis = this.tripQualityAnalyzer.analyzeTripQuality(
         startLatitude,
         startLongitude,
         endLatitude,
         endLongitude,
-        event.distance,
-        // TODO: Pasar posiciones intermedias si están disponibles en event.routePoints
+        event.distance, // Ya viene corregida por ruido GPS
+        maxDistanceFromOrigin,
+        boundingBoxDiameter,
+        event.avgSpeed || 0,
+        tripMetrics.gpsNoiseSegments || 0,
+        tripMetrics.segmentsTotal || 0,
       );
 
-      // Calcular distancia ajustada si se recomienda corrección
-      let finalDistance = event.distance;
-      let distanceOriginal = event.distance;
-      let qualityFlag = qualityAnalysis.qualityFlag;
-
-      if (
-        qualityAnalysis.operationArea.recommendedCorrection < 1.0 &&
-        (qualityAnalysis.operationArea.isSmallArea || qualityAnalysis.tripRatio > 5)
-      ) {
-        finalDistance = event.distance * qualityAnalysis.operationArea.recommendedCorrection;
-        qualityFlag = qualityAnalysis.qualityFlag;
-
-        this.logger.warn(
-          `Trip ${event.tripId} adjusted: ` +
-            `original=${event.distance.toFixed(0)}m, ` +
-            `adjusted=${finalDistance.toFixed(0)}m, ` +
-            `area=${qualityAnalysis.operationArea.boundingBoxDiameter.toFixed(0)}m, ` +
-            `ratio=${qualityAnalysis.tripRatio.toFixed(2)}, ` +
-            `correction_factor=${qualityAnalysis.operationArea.recommendedCorrection.toFixed(2)}`,
-        );
-      }
+      // La distancia final es la que viene del evento (ya corregida por ruido GPS)
+      const finalDistance = event.distance;
 
       // Actualizar con datos finales y métricas de calidad
       await this.tripRepository.update(trip.id, {
@@ -261,20 +253,19 @@ export class TripPersistenceService implements OnModuleInit {
         end_lat: endLatitude,
         end_lon: endLongitude,
         distance: finalDistance,
-        distance_original: distanceOriginal,
+        distance_original: tripMetrics.originalDistance || event.distance,
         distance_linear: qualityAnalysis.linearDistance,
         route_linear_ratio: qualityAnalysis.tripRatio,
-        operation_area_diameter: qualityAnalysis.operationArea.boundingBoxDiameter,
-        quality_flag: qualityFlag,
+        operation_area_diameter: qualityAnalysis.boundingBoxDiameter,
+        quality_flag: qualityAnalysis.qualityFlag,
         quality_metadata: {
           analysisMessage: qualityAnalysis.message,
-          recommendedCorrection: qualityAnalysis.operationArea.recommendedCorrection,
-          correctionApplied: finalDistance !== distanceOriginal,
-          isSmallArea: qualityAnalysis.operationArea.isSmallArea,
-          isVerySmallArea: qualityAnalysis.operationArea.isVerySmallArea,
-          centerPoint: qualityAnalysis.operationArea.centerPoint,
-          // Incluir metadata de segmentos si está disponible en el evento
-          ...(event.metadata?.tripQualityMetrics || {}),
+          hadGpsNoise: qualityAnalysis.hadGpsNoise,
+          gpsNoisePercentage: qualityAnalysis.gpsNoisePercentage,
+          maxDistanceFromOrigin: qualityAnalysis.maxDistanceFromOrigin,
+          segmentsTotal: tripMetrics.segmentsTotal || 0,
+          segmentsAdjusted: tripMetrics.segmentsAdjusted || 0,
+          gpsNoiseSegments: tripMetrics.gpsNoiseSegments || 0,
         },
         max_speed: event.maxSpeed,
         avg_speed: event.avgSpeed,
@@ -287,7 +278,7 @@ export class TripPersistenceService implements OnModuleInit {
       this.logger.log(
         `Trip ${trip.id} completado para device ${event.deviceId}: ` +
           `${finalDistance.toFixed(0)}m en ${event.duration}s ` +
-          `(quality: ${qualityFlag})`,
+          `(quality: ${qualityAnalysis.qualityFlag})`,
       );
     } catch (error) {
       this.logger.error(
