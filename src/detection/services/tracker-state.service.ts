@@ -470,8 +470,7 @@ export class TrackerStateService {
    */
   private async shouldPersistToDb(trackerId: string): Promise<boolean> {
     const key = `${this.REDIS_KEY_PREFIX}${trackerId}:persist_counter`;
-    const client = this.redisService.getClient();
-    const counter = await client.incr(key);
+    const counter = await this.redisService.incr(key);
 
     if (counter === 1) {
       // Primera vez, setear TTL de 1 hora
@@ -480,7 +479,7 @@ export class TrackerStateService {
 
     // Resetear contador si alcanzó el límite
     if (counter >= 100) {
-      await client.del(key);
+      await this.redisService.del(key);
       return true;
     }
 

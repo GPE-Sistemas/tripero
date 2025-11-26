@@ -1,7 +1,13 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import Redis from 'ioredis';
 import Redlock, { ExecutionResult, Lock } from 'redlock';
-import { REDIS_DB, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD } from '../../env';
+import {
+  REDIS_DB,
+  REDIS_HOST,
+  REDIS_PORT,
+  REDIS_PASSWORD,
+  REDIS_KEY_PREFIX,
+} from '../../env';
 import { LoggerService } from '../logger/logger.service';
 
 @Injectable()
@@ -10,6 +16,28 @@ export class RedisService implements OnModuleInit {
   private client: Redis;
   private redlock: Redlock;
   public ready = false;
+  private readonly prefix = REDIS_KEY_PREFIX;
+
+  /**
+   * Aplica el prefijo a una key
+   */
+  private prefixKey(key: string): string {
+    return `${this.prefix}${key}`;
+  }
+
+  /**
+   * Aplica el prefijo a un canal pub/sub
+   */
+  private prefixChannel(channel: string): string {
+    return `${this.prefix}${channel}`;
+  }
+
+  /**
+   * Obtiene el prefijo configurado (para uso externo si es necesario)
+   */
+  getPrefix(): string {
+    return this.prefix;
+  }
 
   async onModuleInit() {
     this.createClient();
@@ -30,7 +58,7 @@ export class RedisService implements OnModuleInit {
 
     this.client.on('connect', () => {
       this.logger.log(
-        `Redis conectado ${REDIS_HOST}:${REDIS_PORT} db ${REDIS_DB}`,
+        `Redis conectado ${REDIS_HOST}:${REDIS_PORT} db ${REDIS_DB} prefix "${this.prefix}"`,
       );
       this.redlock = new Redlock([this.client]);
       this.ready = true;
@@ -78,7 +106,8 @@ export class RedisService implements OnModuleInit {
   async lockKey(key: string, time = 300000): Promise<Lock | false> {
     try {
       await this.waitForConnection();
-      return await this.redlock.acquire([key], time, { retryCount: 0 });
+      const prefixedKey = this.prefixKey(key);
+      return await this.redlock.acquire([prefixedKey], time, { retryCount: 0 });
     } catch (error) {
       return false;
     }
@@ -96,17 +125,19 @@ export class RedisService implements OnModuleInit {
   // Basic operations
   async set(key: string, value: any, ttlInSeconds?: number): Promise<'OK'> {
     await this.waitForConnection();
+    const prefixedKey = this.prefixKey(key);
     const stringValue =
       typeof value === 'string' ? value : JSON.stringify(value);
     if (ttlInSeconds) {
-      return this.client.set(key, stringValue, 'EX', ttlInSeconds);
+      return this.client.set(prefixedKey, stringValue, 'EX', ttlInSeconds);
     }
-    return this.client.set(key, stringValue);
+    return this.client.set(prefixedKey, stringValue);
   }
 
   async get<T = any>(key: string): Promise<T | null> {
     await this.waitForConnection();
-    const result = await this.client.get(key);
+    const prefixedKey = this.prefixKey(key);
+    const result = await this.client.get(prefixedKey);
     if (!result) return null;
 
     try {
@@ -119,48 +150,57 @@ export class RedisService implements OnModuleInit {
   async del(key: string | string[]): Promise<number> {
     await this.waitForConnection();
     if (Array.isArray(key)) {
-      return this.client.del(...key);
+      const prefixedKeys = key.map((k) => this.prefixKey(k));
+      return this.client.del(...prefixedKeys);
     }
-    return this.client.del(key);
+    return this.client.del(this.prefixKey(key));
   }
 
   async exists(key: string): Promise<number> {
     await this.waitForConnection();
-    return this.client.exists(key);
+    return this.client.exists(this.prefixKey(key));
   }
 
   async expire(key: string, ttlInSeconds: number): Promise<number> {
     await this.waitForConnection();
-    return this.client.expire(key, ttlInSeconds);
+    return this.client.expire(this.prefixKey(key), ttlInSeconds);
   }
 
   async ttl(key: string): Promise<number> {
     await this.waitForConnection();
-    return this.client.ttl(key);
+    return this.client.ttl(this.prefixKey(key));
+  }
+
+  async incr(key: string): Promise<number> {
+    await this.waitForConnection();
+    return this.client.incr(this.prefixKey(key));
   }
 
   // Set operations
   async sAdd(key: string, value: any, ttlInSeconds?: number): Promise<number> {
     await this.waitForConnection();
+    const prefixedKey = this.prefixKey(key);
     const stringValue =
       typeof value === 'string' ? value : JSON.stringify(value);
-    const result = await this.client.sadd(key, stringValue);
+    const result = await this.client.sadd(prefixedKey, stringValue);
     if (ttlInSeconds) {
-      await this.client.expire(key, ttlInSeconds);
+      await this.client.expire(prefixedKey, ttlInSeconds);
     }
     return result;
   }
 
   async sRem(key: string, value: any): Promise<number> {
     await this.waitForConnection();
+    const prefixedKey = this.prefixKey(key);
     const stringValue =
       typeof value === 'string' ? value : JSON.stringify(value);
-    return this.client.srem(key, stringValue);
+    return this.client.srem(prefixedKey, stringValue);
   }
 
   async sMembers<T = any>(key: string): Promise<T[]> {
     await this.waitForConnection();
-    const result = await this.client.smembers(key);
+    const prefixedKey = this.prefixKey(key);
+    const result = await this.client.smembers(prefixedKey);
     return result.map((item) => {
       try {
         return JSON.parse(item) as T;
@@ -172,19 +212,48 @@ export class RedisService implements OnModuleInit {
 
   async sIsMember(key: string, value: any): Promise<number> {
     await this.waitForConnection();
+    const prefixedKey = this.prefixKey(key);
     const stringValue =
       typeof value === 'string' ? value : JSON.stringify(value);
-    return this.client.sismember(key, stringValue);
+    return this.client.sismember(prefixedKey, stringValue);
   }
 
   // Publish/Subscribe
   async publish(channel: string, message: any): Promise<number> {
     await this.waitForConnection();
+    const prefixedChannel = this.prefixChannel(channel);
     const stringMessage =
       typeof message === 'string' ? message : JSON.stringify(message);
-    return this.client.publish(channel, stringMessage);
+    return this.client.publish(prefixedChannel, stringMessage);
   }
 
+  /**
+   * Crea un subscriber para un canal (aplica prefijo automáticamente)
+   * @param channel Canal a suscribir
+   * @param onMessage Callback para mensajes recibidos
+   * @returns Cliente Redis configurado como subscriber
+   */
+  async subscribe(
+    channel: string,
+    onMessage: (channel: string, message: string) => void,
+  ): Promise<Redis> {
+    const subscriber = this.createSubscriber();
+    const prefixedChannel = this.prefixChannel(channel);
+
+    subscriber.on('message', (ch, msg) => {
+      // Remover el prefijo del canal antes de pasar al callback
+      const originalChannel = ch.replace(this.prefix, '');
+      onMessage(originalChannel, msg);
+    });
+
+    await subscriber.subscribe(prefixedChannel);
+    return subscriber;
+  }
+
+  /**
+   * Crea un subscriber raw (sin prefijo automático)
+   * Útil para casos donde se necesita control manual del prefijo
+   */
   createSubscriber(): Redis {
     return new Redis({
       host: REDIS_HOST,
@@ -192,6 +261,25 @@ export class RedisService implements OnModuleInit {
       db: REDIS_DB,
       password: REDIS_PASSWORD,
     });
+  }
+
+  /**
+   * Obtiene el canal con prefijo aplicado
+   * Útil para subscribers manuales
+   */
+  getPrefixedChannel(channel: string): string {
+    return this.prefixChannel(channel);
+  }
+
+  /**
+   * Busca keys por patrón (aplica prefijo)
+   */
+  async keys(pattern: string): Promise<string[]> {
+    await this.waitForConnection();
+    const prefixedPattern = this.prefixKey(pattern);
+    const keys = await this.client.keys(prefixedPattern);
+    // Retornar keys sin prefijo para consistencia
+    return keys.map((k) => k.replace(this.prefix, ''));
   }
 
   // Pipeline for batch operations

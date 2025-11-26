@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
+import { REDIS_CHANNELS } from '../../auxiliares/redis/redis.constants';
 import { DeviceQueueManager } from './device-queue.manager';
 import { TrackerStateService } from './tracker-state.service';
 import {
@@ -52,6 +53,9 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
    * Suscribe al canal position:new
    */
   private async subscribe(): Promise<void> {
+    const channel = REDIS_CHANNELS.POSITION_NEW;
+    const prefixedChannel = this.redisService.getPrefixedChannel(channel);
+
     try {
       this.subscriber = this.redisService.createSubscriber();
 
@@ -81,18 +85,18 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
         this.logger.log('Redis subscriber ready');
       });
 
-      this.subscriber.on('message', async (channel, message) => {
-        if (channel === 'position:new') {
+      this.subscriber.on('message', async (ch, message) => {
+        if (ch === prefixedChannel) {
           await this.handlePositionMessage(message);
         }
       });
 
-      await this.subscriber.subscribe('position:new');
+      await this.subscriber.subscribe(prefixedChannel);
       this.isSubscribed = true;
 
-      this.logger.log('Successfully subscribed to position:new channel');
+      this.logger.log(`Successfully subscribed to ${prefixedChannel} channel`);
     } catch (error) {
-      this.logger.error('Error subscribing to position:new', error.stack);
+      this.logger.error(`Error subscribing to ${prefixedChannel}`, error.stack);
 
       // Reintentar después de 5 segundos
       setTimeout(() => {
@@ -107,11 +111,14 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
    */
   private async unsubscribe(): Promise<void> {
     if (this.subscriber) {
+      const prefixedChannel = this.redisService.getPrefixedChannel(
+        REDIS_CHANNELS.POSITION_NEW,
+      );
       try {
-        await this.subscriber.unsubscribe('position:new');
+        await this.subscriber.unsubscribe(prefixedChannel);
         await this.subscriber.quit();
         this.isSubscribed = false;
-        this.logger.log('Unsubscribed from position:new channel');
+        this.logger.log(`Unsubscribed from ${prefixedChannel} channel`);
       } catch (error) {
         this.logger.error('Error unsubscribing', error.stack);
       }
@@ -204,7 +211,7 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
       };
 
       await this.redisService.publish(
-        'position:rejected',
+        REDIS_CHANNELS.POSITION_REJECTED,
         rejectedEvent,
       );
 

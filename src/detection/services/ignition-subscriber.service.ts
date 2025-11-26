@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
+import { REDIS_CHANNELS } from '../../auxiliares/redis/redis.constants';
 import { TrackerStateService } from './tracker-state.service';
 import { IIgnitionEvent, validateIgnitionEvent } from '../../interfaces';
 
@@ -48,6 +49,9 @@ export class IgnitionSubscriberService implements OnModuleInit, OnModuleDestroy 
    * Suscribe al canal ignition:changed
    */
   private async subscribe(): Promise<void> {
+    const channel = REDIS_CHANNELS.IGNITION_CHANGED;
+    const prefixedChannel = this.redisService.getPrefixedChannel(channel);
+
     try {
       this.subscriber = this.redisService.createSubscriber();
 
@@ -77,18 +81,18 @@ export class IgnitionSubscriberService implements OnModuleInit, OnModuleDestroy 
         this.logger.log('Redis ignition subscriber ready');
       });
 
-      this.subscriber.on('message', async (channel, message) => {
-        if (channel === 'ignition:changed') {
+      this.subscriber.on('message', async (ch, message) => {
+        if (ch === prefixedChannel) {
           await this.handleIgnitionMessage(message);
         }
       });
 
-      await this.subscriber.subscribe('ignition:changed');
+      await this.subscriber.subscribe(prefixedChannel);
       this.isSubscribed = true;
 
-      this.logger.log('Successfully subscribed to ignition:changed channel');
+      this.logger.log(`Successfully subscribed to ${prefixedChannel} channel`);
     } catch (error) {
-      this.logger.error('Error subscribing to ignition:changed', error.stack);
+      this.logger.error(`Error subscribing to ${prefixedChannel}`, error.stack);
 
       // Reintentar después de 5 segundos
       setTimeout(() => {
@@ -103,13 +107,16 @@ export class IgnitionSubscriberService implements OnModuleInit, OnModuleDestroy 
    */
   private async unsubscribe(): Promise<void> {
     if (this.subscriber) {
+      const prefixedChannel = this.redisService.getPrefixedChannel(
+        REDIS_CHANNELS.IGNITION_CHANGED,
+      );
       try {
-        await this.subscriber.unsubscribe('ignition:changed');
+        await this.subscriber.unsubscribe(prefixedChannel);
         await this.subscriber.quit();
         this.isSubscribed = false;
-        this.logger.log('Unsubscribed from ignition:changed channel');
+        this.logger.log(`Unsubscribed from ${prefixedChannel} channel`);
       } catch (error) {
-        this.logger.error('Error unsubscribing from ignition:changed', error.stack);
+        this.logger.error(`Error unsubscribing from ${prefixedChannel}`, error.stack);
       }
     }
   }

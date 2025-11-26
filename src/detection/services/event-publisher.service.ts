@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../../auxiliares/redis/redis.service';
+import { REDIS_CHANNELS } from '../../auxiliares/redis/redis.constants';
 import {
   ITripStartedEvent,
   ITripCompletedEvent,
@@ -22,12 +23,12 @@ export class EventPublisherService {
    */
   async publishTripStarted(event: ITripStartedEvent): Promise<void> {
     try {
-      await this.redis.publish('trip:started', JSON.stringify(event));
+      await this.redis.publish(REDIS_CHANNELS.TRIP_STARTED, JSON.stringify(event));
       this.logger.log(
-        `Published trip:started for device ${event.deviceId}, trip ${event.tripId}`,
+        `Published ${REDIS_CHANNELS.TRIP_STARTED} for device ${event.deviceId}, trip ${event.tripId}`,
       );
     } catch (error) {
-      this.logger.error('Error publishing trip:started', error.stack);
+      this.logger.error(`Error publishing ${REDIS_CHANNELS.TRIP_STARTED}`, error.stack);
     }
   }
 
@@ -36,12 +37,12 @@ export class EventPublisherService {
    */
   async publishTripCompleted(event: ITripCompletedEvent): Promise<void> {
     try {
-      await this.redis.publish('trip:completed', JSON.stringify(event));
+      await this.redis.publish(REDIS_CHANNELS.TRIP_COMPLETED, JSON.stringify(event));
       this.logger.log(
-        `Published trip:completed for device ${event.deviceId}, trip ${event.tripId}`,
+        `Published ${REDIS_CHANNELS.TRIP_COMPLETED} for device ${event.deviceId}, trip ${event.tripId}`,
       );
     } catch (error) {
-      this.logger.error('Error publishing trip:completed', error.stack);
+      this.logger.error(`Error publishing ${REDIS_CHANNELS.TRIP_COMPLETED}`, error.stack);
     }
   }
 
@@ -50,12 +51,12 @@ export class EventPublisherService {
    */
   async publishStopStarted(event: IStopStartedEvent): Promise<void> {
     try {
-      await this.redis.publish('stop:started', JSON.stringify(event));
+      await this.redis.publish(REDIS_CHANNELS.STOP_STARTED, JSON.stringify(event));
       this.logger.log(
-        `Published stop:started for device ${event.deviceId}, stop ${event.stopId}`,
+        `Published ${REDIS_CHANNELS.STOP_STARTED} for device ${event.deviceId}, stop ${event.stopId}`,
       );
     } catch (error) {
-      this.logger.error('Error publishing stop:started', error.stack);
+      this.logger.error(`Error publishing ${REDIS_CHANNELS.STOP_STARTED}`, error.stack);
     }
   }
 
@@ -64,12 +65,12 @@ export class EventPublisherService {
    */
   async publishStopCompleted(event: IStopCompletedEvent): Promise<void> {
     try {
-      await this.redis.publish('stop:completed', JSON.stringify(event));
+      await this.redis.publish(REDIS_CHANNELS.STOP_COMPLETED, JSON.stringify(event));
       this.logger.log(
-        `Published stop:completed for device ${event.deviceId}, stop ${event.stopId}`,
+        `Published ${REDIS_CHANNELS.STOP_COMPLETED} for device ${event.deviceId}, stop ${event.stopId}`,
       );
     } catch (error) {
-      this.logger.error('Error publishing stop:completed', error.stack);
+      this.logger.error(`Error publishing ${REDIS_CHANNELS.STOP_COMPLETED}`, error.stack);
     }
   }
 
@@ -80,13 +81,13 @@ export class EventPublisherService {
     event: ITrackerStateChangedEvent,
   ): Promise<void> {
     try {
-      await this.redis.publish('tracker:state:changed', JSON.stringify(event));
+      await this.redis.publish(REDIS_CHANNELS.TRACKER_STATE_CHANGED, JSON.stringify(event));
       this.logger.log(
-        `Published tracker:state:changed for device ${event.trackerId}: ` +
+        `Published ${REDIS_CHANNELS.TRACKER_STATE_CHANGED} for device ${event.trackerId}: ` +
           `${event.previousState} → ${event.currentState} (${event.reason})`,
       );
     } catch (error) {
-      this.logger.error('Error publishing tracker:state:changed', error.stack);
+      this.logger.error(`Error publishing ${REDIS_CHANNELS.TRACKER_STATE_CHANGED}`, error.stack);
     }
   }
 }
