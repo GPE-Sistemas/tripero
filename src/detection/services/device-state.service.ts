@@ -108,8 +108,7 @@ export class DeviceStateService {
   async getAllActiveDevices(): Promise<string[]> {
     try {
       const pattern = this.getStateKey('*');
-      const client = this.redis.getClient();
-      const keys = await client.keys(pattern);
+      const keys = await this.redis.keys(pattern);
 
       return keys.map((key) => key.replace('device:state:', ''));
     } catch (error) {

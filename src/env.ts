@@ -12,6 +12,7 @@ export const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 export const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379', 10);
 export const REDIS_DB = parseInt(process.env.REDIS_DB || '0', 10);
 export const REDIS_PASSWORD = process.env.REDIS_PASSWORD;
+export const REDIS_KEY_PREFIX = process.env.REDIS_KEY_PREFIX || 'tripero:';
 
 // Database (TimescaleDB/PostgreSQL)
 export const DB_HOST = process.env.DB_HOST || 'localhost';
