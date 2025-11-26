@@ -52,20 +52,26 @@ export interface IDeviceMotionState {
   tripMaxSpeed?: number; // km/h
   tripStopsCount?: number;
   tripMetadata?: Record<string, any>; // Metadata del trip (se propaga del position event)
+
+  // === Contexto para detección de ruido GPS ===
+  tripMaxDistanceFromOrigin?: number; // Distancia máxima alcanzada desde el origen
+  tripBoundingBox?: {
+    // Bounding box del trip
+    minLat: number;
+    maxLat: number;
+    minLon: number;
+    maxLon: number;
+  };
+  tripSpeedSum?: number; // Suma de velocidades (para calcular promedio)
+  tripPositionCount?: number; // Cantidad de posiciones procesadas
+
   tripQualityMetrics?: {
     // Metadata de calidad para el trip actual
     segmentsTotal: number; // Total de segmentos GPS procesados
-    segmentsAdjusted: number; // Segmentos que fueron ajustados
+    segmentsAdjusted: number; // Segmentos que fueron ajustados (ruido GPS)
     originalDistance: number; // Distancia total sin ajustes
     adjustedDistance: number; // Distancia total con ajustes
-    anomalies: Array<{
-      // Anomalías detectadas
-      timestamp: number;
-      reason?: string;
-      originalDistance: number;
-      adjustedDistance: number;
-      ratio: number;
-    }>;
+    gpsNoiseSegments: number; // Cantidad de segmentos descartados por ruido GPS
   };
 
   // Stop actual (si existe)

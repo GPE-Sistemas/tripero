@@ -110,6 +110,23 @@ export class StateMachineService {
       updatedState.tripDistance = 0;
       updatedState.tripMaxSpeed = position.speed;
       updatedState.tripStopsCount = 0;
+      // Inicializar contexto para detección de ruido GPS
+      updatedState.tripMaxDistanceFromOrigin = 0;
+      updatedState.tripBoundingBox = {
+        minLat: position.latitude,
+        maxLat: position.latitude,
+        minLon: position.longitude,
+        maxLon: position.longitude,
+      };
+      updatedState.tripSpeedSum = position.speed;
+      updatedState.tripPositionCount = 1;
+      updatedState.tripQualityMetrics = {
+        segmentsTotal: 0,
+        segmentsAdjusted: 0,
+        originalDistance: 0,
+        adjustedDistance: 0,
+        gpsNoiseSegments: 0,
+      };
     }
 
     // Finalizar stop si es necesario
@@ -202,6 +219,23 @@ export class StateMachineService {
       deviceState.tripDistance = 0;
       deviceState.tripMaxSpeed = position.speed;
       deviceState.tripStopsCount = 0;
+      // Inicializar contexto para detección de ruido GPS
+      deviceState.tripMaxDistanceFromOrigin = 0;
+      deviceState.tripBoundingBox = {
+        minLat: position.latitude,
+        maxLat: position.latitude,
+        minLon: position.longitude,
+        maxLon: position.longitude,
+      };
+      deviceState.tripSpeedSum = position.speed;
+      deviceState.tripPositionCount = 1;
+      deviceState.tripQualityMetrics = {
+        segmentsTotal: 0,
+        segmentsAdjusted: 0,
+        originalDistance: 0,
+        adjustedDistance: 0,
+        gpsNoiseSegments: 0,
+      };
     }
 
     if (actions.startStop) {
@@ -324,7 +358,24 @@ export class StateMachineService {
 
     // Si hay trip activo, actualizar métricas
     if (currentState.currentTripId) {
-      // Validar segmento GPS antes de acumular distancia
+      // Construir contexto del trip para detección de ruido GPS
+      const tripContext = {
+        startLat: currentState.tripStartLat || currentState.lastLat,
+        startLon: currentState.tripStartLon || currentState.lastLon,
+        currentDistance: currentState.tripDistance || 0,
+        startTime: currentState.tripStartTime || currentState.lastTimestamp,
+        maxDistanceFromOrigin: currentState.tripMaxDistanceFromOrigin || 0,
+        boundingBox: currentState.tripBoundingBox || {
+          minLat: currentState.tripStartLat || currentState.lastLat,
+          maxLat: currentState.tripStartLat || currentState.lastLat,
+          minLon: currentState.tripStartLon || currentState.lastLon,
+          maxLon: currentState.tripStartLon || currentState.lastLon,
+        },
+        speedSum: currentState.tripSpeedSum || 0,
+        positionCount: currentState.tripPositionCount || 0,
+      };
+
+      // Validar segmento GPS (detecta ruido GPS)
       const validation = this.distanceValidator.validateSegment(
         {
           lat: currentState.lastLat,
@@ -340,15 +391,25 @@ export class StateMachineService {
           speed: position.speed,
           ignition: position.ignition ?? false,
         },
-        {
-          startLat: currentState.tripStartLat || currentState.lastLat,
-          startLon: currentState.tripStartLon || currentState.lastLon,
-          currentDistance: currentState.tripDistance || 0,
-          startTime: currentState.tripStartTime || currentState.lastTimestamp,
-        },
+        tripContext,
       );
 
-      // Usar distancia ajustada (después de aplicar correcciones)
+      // Actualizar contexto del trip con la nueva posición
+      const updatedContext = this.distanceValidator.updateTripContext(tripContext, {
+        lat: position.latitude,
+        lon: position.longitude,
+        timestamp: position.timestamp,
+        speed: position.speed,
+        ignition: position.ignition ?? false,
+      });
+
+      // Aplicar contexto actualizado al estado
+      updatedState.tripMaxDistanceFromOrigin = updatedContext.maxDistanceFromOrigin;
+      updatedState.tripBoundingBox = updatedContext.boundingBox;
+      updatedState.tripSpeedSum = updatedContext.speedSum;
+      updatedState.tripPositionCount = updatedContext.positionCount;
+
+      // Usar distancia ajustada (0 si es ruido GPS, completa si es movimiento real)
       updatedState.tripDistance = (currentState.tripDistance || 0) + validation.adjustedDistance;
 
       updatedState.tripMaxSpeed = Math.max(
@@ -363,7 +424,7 @@ export class StateMachineService {
           segmentsAdjusted: 0,
           originalDistance: 0,
           adjustedDistance: 0,
-          anomalies: [],
+          gpsNoiseSegments: 0,
         };
       }
 
@@ -371,16 +432,12 @@ export class StateMachineService {
       updatedState.tripQualityMetrics.originalDistance += validation.originalDistance;
       updatedState.tripQualityMetrics.adjustedDistance += validation.adjustedDistance;
 
-      // Si el segmento fue ajustado o es inválido, registrar anomalía
-      if (!validation.isValid || validation.adjustedDistance !== validation.originalDistance) {
+      // Registrar si fue ruido GPS
+      if (validation.metadata.isGpsNoise) {
+        updatedState.tripQualityMetrics.gpsNoiseSegments++;
         updatedState.tripQualityMetrics.segmentsAdjusted++;
-        updatedState.tripQualityMetrics.anomalies.push({
-          timestamp: position.timestamp,
-          reason: validation.reason,
-          originalDistance: validation.originalDistance,
-          adjustedDistance: validation.adjustedDistance,
-          ratio: validation.metadata.routeLinearRatio,
-        });
+      } else if (!validation.isValid) {
+        updatedState.tripQualityMetrics.segmentsAdjusted++;
       }
     }
 

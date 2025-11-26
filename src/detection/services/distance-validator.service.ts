@@ -28,10 +28,11 @@ export interface ISegmentValidationResult {
    * Metadata adicional para análisis
    */
   metadata: {
-    linearDistance: number; // Distancia lineal del segmento (misma que originalDistance)
-    routeLinearRatio: number; // Ratio ruta acumulada / distancia lineal desde inicio
-    implicitSpeed: number; // Velocidad implícita calculada del segmento (km/h)
-    timeDelta: number; // Tiempo entre posiciones (segundos)
+    linearDistance: number;
+    distanceFromOrigin: number;
+    implicitSpeed: number;
+    timeDelta: number;
+    isGpsNoise: boolean;
   };
 }
 
@@ -39,10 +40,9 @@ export interface ISegmentValidationResult {
  * Razones de anomalías en segmentos GPS
  */
 export enum SegmentAnomalyReason {
-  EXCESSIVE_RATIO = 'excessive_ratio', // Ratio ruta/lineal > 5
   IMPOSSIBLE_SPEED = 'impossible_speed', // Velocidad > 200 km/h
-  CIRCULAR_MOVEMENT = 'circular_movement', // Movimientos circulares detectados
-  GPS_NOISE = 'gps_noise', // Ruido GPS (movimiento mínimo con velocidad 0)
+  GPS_NOISE = 'gps_noise', // Ruido GPS detectado (vehículo quieto)
+  INVALID_TIME = 'invalid_time', // Delta de tiempo inválido
 }
 
 /**
@@ -57,49 +57,83 @@ export interface IPosition {
 }
 
 /**
- * Contexto del trip para validación avanzada
+ * Contexto del trip para validación - EXTENDIDO para detección de ruido GPS
  */
 export interface ITripContext {
   startLat: number;
   startLon: number;
   currentDistance: number;
   startTime: number;
+
+  // Nuevos campos para detección de ruido GPS
+  maxDistanceFromOrigin: number; // Distancia máxima alcanzada desde el origen
+  boundingBox: {
+    minLat: number;
+    maxLat: number;
+    minLon: number;
+    maxLon: number;
+  };
+  speedSum: number; // Suma de velocidades para calcular promedio
+  positionCount: number; // Cantidad de posiciones procesadas
 }
 
 /**
- * Servicio para validar segmentos GPS y detectar anomalías en la acumulación de distancias
+ * Servicio para validar segmentos GPS y detectar RUIDO GPS
  *
- * Este servicio implementa el algoritmo de validación de distancias propuesto en
- * PLAN-MEJORAS-ODOMETRO-TRIPERO.md para resolver el problema de acumulación excesiva
- * de distancias en áreas pequeñas.
+ * NUEVA LÓGICA (v2):
+ * - NO penaliza recorridos circulares legítimos (colectivos, ida/vuelta, etc.)
+ * - SOLO filtra ruido GPS cuando el vehículo está genuinamente quieto
+ *
+ * Criterios para detectar ruido GPS:
+ * 1. El vehículo NUNCA se alejó significativamente del origen (< 150m)
+ * 2. El área de operación (bounding box) es muy pequeña (< 100m)
+ * 3. La velocidad promedio es muy baja (< 5 km/h)
+ * 4. La velocidad reportada del segmento es 0 o muy baja
  */
 @Injectable()
 export class DistanceValidatorService {
   private readonly logger = new Logger(DistanceValidatorService.name);
 
   /**
-   * Radio de la Tierra en metros (usado para cálculo de Haversine)
+   * Radio de la Tierra en metros (WGS84 ecuatorial)
    */
-  private readonly EARTH_RADIUS_M = 6371000;
+  private readonly EARTH_RADIUS_M = 6378137;
 
   /**
-   * Umbrales de validación configurables
+   * Umbrales para detección de ruido GPS
    */
   private readonly THRESHOLDS = {
-    MAX_SPEED_KMH: 200, // Velocidad máxima permitida
-    MIN_MOVEMENT_METERS: 5, // Movimiento mínimo para considerar válido
-    MAX_TRIP_RATIO: 5, // Ratio máximo ruta/lineal permitido
-    RATIO_CORRECTION_FACTOR: 0.7, // Factor de corrección cuando ratio es excesivo
-    MIN_LINEAR_DISTANCE_FOR_RATIO: 100, // Distancia lineal mínima para calcular ratio
+    // Velocidad máxima físicamente posible (km/h)
+    MAX_SPEED_KMH: 200,
+
+    // Umbral de velocidad para considerar "quieto" (km/h)
+    STATIONARY_SPEED_KMH: 5,
+
+    // Distancia mínima del segmento para considerar movimiento (metros)
+    MIN_SEGMENT_DISTANCE: 5,
+
+    // === UMBRALES PARA DETECTAR RUIDO GPS ===
+    // Si el vehículo NUNCA superó esta distancia del origen, podría ser ruido GPS
+    MAX_ORIGIN_DISTANCE_FOR_NOISE: 150,
+
+    // Si el bounding box es menor a esto, podría ser ruido GPS
+    MAX_BBOX_FOR_NOISE: 100,
+
+    // Si la velocidad promedio es menor a esto, podría ser ruido GPS
+    MAX_AVG_SPEED_FOR_NOISE: 5,
+
+    // === UMBRAL PARA CONFIRMAR MOVIMIENTO REAL ===
+    // Si el vehículo alguna vez estuvo a más de esta distancia, TODO es válido
+    MIN_DISTANCE_FOR_REAL_MOVEMENT: 300,
   };
 
   /**
-   * Valida un segmento GPS individual
+   * Valida un segmento GPS y detecta si es ruido GPS
    *
    * @param from Posición GPS de origen
    * @param to Posición GPS de destino
-   * @param tripContext Contexto del trip actual (opcional, mejora precisión)
-   * @returns Resultado de validación con distancia ajustada
+   * @param tripContext Contexto del trip actual (requerido para detección precisa)
+   * @returns Resultado de validación con distancia (ajustada si es ruido GPS)
    */
   validateSegment(
     from: IPosition,
@@ -108,108 +142,180 @@ export class DistanceValidatorService {
   ): ISegmentValidationResult {
     // 1. Calcular distancia del segmento usando Haversine
     const distance = this.haversineDistance(from.lat, from.lon, to.lat, to.lon);
-    const timeDelta = (to.timestamp - from.timestamp) / 1000; // segundos
+    const timeDelta = (to.timestamp - from.timestamp) / 1000;
 
-    // Evitar división por cero
+    // 2. Validar tiempo
     if (timeDelta <= 0) {
       this.logger.warn(
         `Invalid time delta: ${timeDelta}s (from: ${from.timestamp}, to: ${to.timestamp})`,
       );
-      return this.createInvalidResult(distance, 0, SegmentAnomalyReason.GPS_NOISE);
+      return this.createResult(distance, 0, false, SegmentAnomalyReason.INVALID_TIME, {
+        distanceFromOrigin: 0,
+        timeDelta,
+      });
     }
 
-    const linearDistance = distance; // Guardar para metadata
-
-    // 2. Calcular velocidad implícita del segmento (m/s → km/h)
+    // 3. Calcular velocidad implícita (m/s → km/h)
     const implicitSpeed = (distance / timeDelta) * 3.6;
 
-    // 3. Validar velocidad imposible (> 200 km/h)
+    // 4. Validar velocidad imposible (> 200 km/h)
     if (implicitSpeed > this.THRESHOLDS.MAX_SPEED_KMH) {
       this.logger.warn(
-        `Impossible speed detected: ${implicitSpeed.toFixed(2)} km/h ` +
-          `(distance: ${distance.toFixed(2)}m, time: ${timeDelta.toFixed(2)}s)`,
+        `Impossible speed: ${implicitSpeed.toFixed(1)} km/h ` +
+          `(${distance.toFixed(1)}m in ${timeDelta.toFixed(1)}s)`,
       );
-      return this.createInvalidResult(
-        distance,
+      return this.createResult(distance, 0, false, SegmentAnomalyReason.IMPOSSIBLE_SPEED, {
+        distanceFromOrigin: tripContext?.maxDistanceFromOrigin || 0,
         timeDelta,
-        SegmentAnomalyReason.IMPOSSIBLE_SPEED,
-      );
+        implicitSpeed,
+      });
     }
 
-    // 4. Filtrar ruido GPS (movimiento muy pequeño con velocidad reportada = 0)
-    if (distance < this.THRESHOLDS.MIN_MOVEMENT_METERS && to.speed === 0) {
-      return this.createInvalidResult(
-        distance,
-        timeDelta,
-        SegmentAnomalyReason.GPS_NOISE,
-      );
-    }
-
-    // 5. Si hay contexto de trip, validar contra inicio del trip
+    // 5. Si hay contexto de trip, evaluar si es ruido GPS
     if (tripContext) {
-      const tripLinearDistance = this.haversineDistance(
+      // Calcular distancia actual desde el origen
+      const distanceFromOrigin = this.haversineDistance(
         tripContext.startLat,
         tripContext.startLon,
         to.lat,
         to.lon,
       );
 
-      const tripRouteDistance = (tripContext.currentDistance || 0) + distance;
+      // Calcular tamaño del bounding box
+      const bboxDiameter = this.calculateBoundingBoxDiameter(tripContext.boundingBox);
 
-      // Calcular ratio del trip completo (con mínimo para evitar divisiones problemáticas)
-      const tripRatio =
-        tripRouteDistance /
-        Math.max(tripLinearDistance, this.THRESHOLDS.MIN_LINEAR_DISTANCE_FOR_RATIO);
+      // Calcular velocidad promedio del trip
+      const avgSpeed =
+        tripContext.positionCount > 0
+          ? tripContext.speedSum / tripContext.positionCount
+          : to.speed;
 
-      // Si el ratio del trip completo es excesivo, aplicar corrección
-      if (tripRatio > this.THRESHOLDS.MAX_TRIP_RATIO) {
-        // Usar factor conservador para ajustar distancia
-        const adjustedDistance = linearDistance * this.THRESHOLDS.RATIO_CORRECTION_FACTOR;
-
-        this.logger.debug(
-          `Excessive ratio detected: ${tripRatio.toFixed(2)} ` +
-            `(trip: ${(tripRouteDistance / 1000).toFixed(2)}km, ` +
-            `linear: ${(tripLinearDistance / 1000).toFixed(2)}km). ` +
-            `Applying correction: ${distance.toFixed(2)}m → ${adjustedDistance.toFixed(2)}m`,
-        );
-
-        return {
-          isValid: true, // Válido pero ajustado
-          adjustedDistance,
-          originalDistance: distance,
-          reason: SegmentAnomalyReason.EXCESSIVE_RATIO,
-          metadata: {
-            linearDistance,
-            routeLinearRatio: tripRatio,
-            implicitSpeed,
-            timeDelta,
-          },
-        };
+      // === REGLA CLAVE: Si alguna vez se alejó significativamente, TODO es válido ===
+      if (tripContext.maxDistanceFromOrigin >= this.THRESHOLDS.MIN_DISTANCE_FOR_REAL_MOVEMENT) {
+        // El vehículo se movió de verdad - aceptar todo sin corrección
+        return this.createResult(distance, distance, true, undefined, {
+          distanceFromOrigin,
+          timeDelta,
+          implicitSpeed,
+          isGpsNoise: false,
+        });
       }
+
+      // === DETECTAR RUIDO GPS ===
+      // Solo aplicar si se cumplen TODAS las condiciones de vehículo quieto
+      const isLikelyGpsNoise =
+        tripContext.maxDistanceFromOrigin < this.THRESHOLDS.MAX_ORIGIN_DISTANCE_FOR_NOISE &&
+        bboxDiameter < this.THRESHOLDS.MAX_BBOX_FOR_NOISE &&
+        avgSpeed < this.THRESHOLDS.MAX_AVG_SPEED_FOR_NOISE &&
+        to.speed < this.THRESHOLDS.STATIONARY_SPEED_KMH;
+
+      if (isLikelyGpsNoise && distance < 20) {
+        // Es ruido GPS - descartar este segmento
+        this.logger.debug(
+          `GPS noise detected: segment=${distance.toFixed(1)}m, ` +
+            `maxFromOrigin=${tripContext.maxDistanceFromOrigin.toFixed(1)}m, ` +
+            `bbox=${bboxDiameter.toFixed(1)}m, avgSpeed=${avgSpeed.toFixed(1)}km/h`,
+        );
+        return this.createResult(distance, 0, true, SegmentAnomalyReason.GPS_NOISE, {
+          distanceFromOrigin,
+          timeDelta,
+          implicitSpeed,
+          isGpsNoise: true,
+        });
+      }
+
+      // No es ruido GPS - aceptar distancia completa
+      return this.createResult(distance, distance, true, undefined, {
+        distanceFromOrigin,
+        timeDelta,
+        implicitSpeed,
+        isGpsNoise: false,
+      });
     }
 
-    // 6. Segmento válido sin correcciones
-    return {
-      isValid: true,
-      adjustedDistance: distance,
-      originalDistance: distance,
-      metadata: {
-        linearDistance,
-        routeLinearRatio: 1.0,
-        implicitSpeed,
+    // 6. Sin contexto de trip - validación básica
+    // Filtrar solo movimientos muy pequeños con velocidad 0
+    if (distance < this.THRESHOLDS.MIN_SEGMENT_DISTANCE && to.speed === 0) {
+      return this.createResult(distance, 0, true, SegmentAnomalyReason.GPS_NOISE, {
+        distanceFromOrigin: 0,
         timeDelta,
+        implicitSpeed,
+        isGpsNoise: true,
+      });
+    }
+
+    return this.createResult(distance, distance, true, undefined, {
+      distanceFromOrigin: 0,
+      timeDelta,
+      implicitSpeed,
+      isGpsNoise: false,
+    });
+  }
+
+  /**
+   * Actualiza el contexto del trip con una nueva posición
+   * Debe llamarse después de validateSegment para mantener el contexto actualizado
+   */
+  updateTripContext(
+    context: ITripContext,
+    position: IPosition,
+  ): ITripContext {
+    const distanceFromOrigin = this.haversineDistance(
+      context.startLat,
+      context.startLon,
+      position.lat,
+      position.lon,
+    );
+
+    return {
+      ...context,
+      maxDistanceFromOrigin: Math.max(context.maxDistanceFromOrigin, distanceFromOrigin),
+      boundingBox: {
+        minLat: Math.min(context.boundingBox.minLat, position.lat),
+        maxLat: Math.max(context.boundingBox.maxLat, position.lat),
+        minLon: Math.min(context.boundingBox.minLon, position.lon),
+        maxLon: Math.max(context.boundingBox.maxLon, position.lon),
       },
+      speedSum: context.speedSum + position.speed,
+      positionCount: context.positionCount + 1,
     };
   }
 
   /**
+   * Crea un contexto de trip inicial
+   */
+  createInitialTripContext(startLat: number, startLon: number, startTime: number): ITripContext {
+    return {
+      startLat,
+      startLon,
+      currentDistance: 0,
+      startTime,
+      maxDistanceFromOrigin: 0,
+      boundingBox: {
+        minLat: startLat,
+        maxLat: startLat,
+        minLon: startLon,
+        maxLon: startLon,
+      },
+      speedSum: 0,
+      positionCount: 0,
+    };
+  }
+
+  /**
+   * Calcula el diámetro del bounding box (diagonal)
+   */
+  private calculateBoundingBoxDiameter(bbox: ITripContext['boundingBox']): number {
+    return this.haversineDistance(
+      bbox.minLat,
+      bbox.minLon,
+      bbox.maxLat,
+      bbox.maxLon,
+    );
+  }
+
+  /**
    * Calcula la distancia entre dos puntos GPS usando la fórmula de Haversine
-   *
-   * @param lat1 Latitud del punto 1
-   * @param lon1 Longitud del punto 1
-   * @param lat2 Latitud del punto 2
-   * @param lon2 Longitud del punto 2
-   * @returns Distancia en metros
    */
   haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const dLat = this.toRadians(lat2 - lat1);
@@ -227,31 +333,36 @@ export class DistanceValidatorService {
     return this.EARTH_RADIUS_M * c;
   }
 
-  /**
-   * Convierte grados a radianes
-   */
   private toRadians(degrees: number): number {
     return degrees * (Math.PI / 180);
   }
 
   /**
-   * Crea un resultado de validación inválido
+   * Crea un resultado de validación
    */
-  private createInvalidResult(
-    distance: number,
-    timeDelta: number,
-    reason: SegmentAnomalyReason,
+  private createResult(
+    originalDistance: number,
+    adjustedDistance: number,
+    isValid: boolean,
+    reason?: SegmentAnomalyReason,
+    extra?: {
+      distanceFromOrigin?: number;
+      timeDelta?: number;
+      implicitSpeed?: number;
+      isGpsNoise?: boolean;
+    },
   ): ISegmentValidationResult {
     return {
-      isValid: false,
-      adjustedDistance: 0, // Descartar completamente
-      originalDistance: distance,
+      isValid,
+      adjustedDistance,
+      originalDistance,
       reason,
       metadata: {
-        linearDistance: distance,
-        routeLinearRatio: 0,
-        implicitSpeed: timeDelta > 0 ? (distance / timeDelta) * 3.6 : 0,
-        timeDelta,
+        linearDistance: originalDistance,
+        distanceFromOrigin: extra?.distanceFromOrigin || 0,
+        implicitSpeed: extra?.implicitSpeed || 0,
+        timeDelta: extra?.timeDelta || 0,
+        isGpsNoise: extra?.isGpsNoise || false,
       },
     };
   }
