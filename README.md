@@ -1,6 +1,8 @@
-# 🚗 Tripero
-
 <div align="center">
+
+<img src="https://storage.googleapis.com/assets-generales/tripero-beta.png" width="200" alt="Tripero Logo" />
+
+# Tripero
 
 **Intelligent GPS Trip Detection & Stop Analysis Microservice**
 
