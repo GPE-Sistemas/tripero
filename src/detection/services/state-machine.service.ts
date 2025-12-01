@@ -577,27 +577,38 @@ export class StateMachineService {
 
   /**
    * Maneja gaps temporales grandes (pérdida de señal GPS)
+   *
+   * Casos de cierre de trip:
+   * 1. Stop activo >= minStopDuration (5 min) - comportamiento normal
+   * 2. Gap >= maxOvernightGapDuration (2h) - fuerza cierre sin importar stop
+   *    (cubre casos donde tracker se apaga sin transición a STOPPED)
    */
   private handleLargeGap(
     position: IPositionEvent,
     currentState: IDeviceMotionState,
   ): IStateTransitionResult {
+    // Calcular duración del gap
+    const gapDuration = (position.timestamp - currentState.lastTimestamp) / 1000;
+
     // Calcular duración del stop actual (si existe)
     const stopDuration =
       currentState.currentStopId && currentState.stopStartTime
         ? (position.timestamp - currentState.stopStartTime) / 1000
         : 0;
 
+    // Determinar si es un gap "nocturno" (muy largo, típicamente tracker apagado)
+    const isOvernightGap = gapDuration >= this.thresholds.maxOvernightGapDuration;
+
     // Determinar si debemos cerrar el trip
-    // Solo cerrarlo si:
+    // Cerrarlo si:
     // 1. Hay un trip activo Y
-    // 2. El stop duró >= minStopDuration (5 min por defecto)
+    // 2. (El stop duró >= minStopDuration O es un gap nocturno)
     //
-    // Esto evita cerrar trips prematuramente por gaps de comunicación
-    // cuando el vehículo estaba en un stop corto (ej: semáforo, entrega rápida)
+    // El gap nocturno fuerza el cierre porque indica que el vehículo
+    // estuvo inactivo por mucho tiempo (ej: tracker desconectado de noche)
     const shouldEndTrip =
       !!currentState.currentTripId &&
-      stopDuration >= this.thresholds.minStopDuration;
+      (stopDuration >= this.thresholds.minStopDuration || isOvernightGap);
 
     const actions: IStateTransitionResult['actions'] = {
       endTrip: shouldEndTrip,
@@ -609,12 +620,23 @@ export class StateMachineService {
     };
 
     if (shouldEndTrip) {
-      this.logger.log(
-        `Closing trip for device ${position.deviceId} after ${Math.round(position.timestamp - currentState.lastTimestamp) / 1000}s gap: stop was ${Math.round(stopDuration)}s (>= ${this.thresholds.minStopDuration}s threshold)`,
-      );
+      if (isOvernightGap && stopDuration < this.thresholds.minStopDuration) {
+        this.logger.log(
+          `Closing trip for device ${position.deviceId} due to overnight gap: ` +
+          `${Math.round(gapDuration)}s gap (>= ${this.thresholds.maxOvernightGapDuration}s threshold), ` +
+          `stop was only ${Math.round(stopDuration)}s but gap forces closure`,
+        );
+      } else {
+        this.logger.log(
+          `Closing trip for device ${position.deviceId} after ${Math.round(gapDuration)}s gap: ` +
+          `stop was ${Math.round(stopDuration)}s (>= ${this.thresholds.minStopDuration}s threshold)`,
+        );
+      }
     } else if (currentState.currentTripId) {
       this.logger.debug(
-        `Keeping trip open for device ${position.deviceId} after ${Math.round(position.timestamp - currentState.lastTimestamp) / 1000}s gap: stop was ${Math.round(stopDuration)}s (< ${this.thresholds.minStopDuration}s threshold)`,
+        `Keeping trip open for device ${position.deviceId} after ${Math.round(gapDuration)}s gap: ` +
+        `stop was ${Math.round(stopDuration)}s (< ${this.thresholds.minStopDuration}s threshold), ` +
+        `gap < ${this.thresholds.maxOvernightGapDuration}s overnight threshold`,
       );
     }
 

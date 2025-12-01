@@ -15,6 +15,7 @@ import {
   DeviceEventQueueManager,
   DistanceValidatorService,
   TripQualityAnalyzerService,
+  OrphanTripCleanupService,
 } from './services';
 
 @Module({
@@ -33,6 +34,7 @@ import {
     StopPersistenceService,
     DistanceValidatorService,
     TripQualityAnalyzerService,
+    OrphanTripCleanupService,
   ],
   exports: [
     StateMachineService,
@@ -48,6 +50,7 @@ import {
     StopPersistenceService,
     DistanceValidatorService,
     TripQualityAnalyzerService,
+    OrphanTripCleanupService,
   ],
 })
 export class DetectionModule {}

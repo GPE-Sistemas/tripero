@@ -168,4 +168,20 @@ export class StopRepository {
 
     return result.affected || 0;
   }
+
+  /**
+   * Encuentra stops huérfanos (activos sin actualización en las últimas N horas)
+   */
+  async findOrphanStops(hoursWithoutUpdate: number): Promise<Stop[]> {
+    const cutoffTime = new Date();
+    cutoffTime.setHours(cutoffTime.getHours() - hoursWithoutUpdate);
+
+    return await this.stopRepo
+      .find({
+        where: {
+          is_active: true,
+        },
+      })
+      .then((stops) => stops.filter((stop) => stop.updated_at < cutoffTime));
+  }
 }
