@@ -11,6 +11,7 @@ export interface ICreateStopData {
   longitude: number;
   reason?: string;
   trip_id?: string;
+  start_odometer?: number;
   metadata?: Record<string, any>;
 }
 
@@ -19,6 +20,7 @@ export interface IUpdateStopData {
   duration?: number;
   address?: string;
   is_active?: boolean;
+  end_odometer?: number;
   metadata?: Record<string, any>;
 }
 

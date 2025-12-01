@@ -47,4 +47,14 @@ export class StopResponseDto {
    * Horas de motor (opcional, no implementado)
    */
   engineHours?: number;
+
+  /**
+   * Odómetro al inicio del stop (metros)
+   */
+  startOdometer?: number;
+
+  /**
+   * Odómetro al final del stop (metros)
+   */
+  endOdometer?: number;
 }
