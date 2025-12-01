@@ -41,6 +41,12 @@ export interface IStateTransitionResult {
     maxSpeed: number;
     stopsCount: number;
   };
+
+  // Información de overnight gap (para tracking de problemas de energía)
+  overnightGap?: {
+    detected: boolean;
+    durationSeconds: number;
+  };
 }
 
 @Injectable()
@@ -661,6 +667,13 @@ export class StateMachineService {
         ...actions,
         ...firstPosResult.actions,
       },
+      // Agregar información de overnight gap para tracking de problemas de energía
+      overnightGap: isOvernightGap
+        ? {
+            detected: true,
+            durationSeconds: gapDuration,
+          }
+        : undefined,
     };
   }
 

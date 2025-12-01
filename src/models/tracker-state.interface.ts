@@ -37,6 +37,11 @@ export interface ITrackerState {
   totalIdleTime: number; // segundos
   totalStopsCount: number;
 
+  // Tracking de problemas de energía (overnight gaps)
+  overnightGapCount: number; // Cantidad de gaps nocturnos detectados
+  lastOvernightGapAt?: Date; // Fecha del último gap nocturno
+  powerType: 'permanent' | 'battery' | 'unknown'; // Tipo de alimentación inferido
+
   // Metadata
   firstSeenAt: Date;
   lastSeenAt: Date;
@@ -109,6 +114,15 @@ export interface ITrackerStatus {
     status: 'online' | 'offline' | 'stale';
     lastSeenAgo: number; // segundos
     positionsToday?: number;
+  };
+
+  // Diagnóstico de alimentación eléctrica
+  powerDiagnostic?: {
+    powerType: 'permanent' | 'battery' | 'unknown';
+    overnightGapCount: number;
+    lastOvernightGapAt?: Date;
+    hasPowerIssue: boolean; // true si overnightGapCount >= 3
+    recommendation?: string;
   };
 }
 
