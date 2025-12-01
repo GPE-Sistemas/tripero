@@ -127,8 +127,16 @@ export interface IDetectionThresholds {
   // Tiempo máximo sin datos para cerrar trip automáticamente (segundos)
   maxGapDuration: number;
 
+  // Gap máximo que fuerza cierre de trip sin importar si hay stop activo (segundos)
+  // Usado para detectar gaps nocturnos donde el tracker se apaga
+  maxOvernightGapDuration: number;
+
   // Tamaño del buffer de posiciones recientes
   positionBufferSize: number;
+
+  // Tiempo de inactividad para considerar un trip huérfano (segundos)
+  // Trips sin posiciones por más de este tiempo serán cerrados por el cleanup job
+  orphanTripTimeout: number;
 }
 
 /**
@@ -140,5 +148,7 @@ export const DEFAULT_THRESHOLDS: IDetectionThresholds = {
   minTripDuration: 60, // 1 minuto
   minStopDuration: 300, // 5 minutos (igual que Traccar) - duración mínima para segmentar trips
   maxGapDuration: 600, // 10 minutos
+  maxOvernightGapDuration: 7200, // 2 horas - fuerza cierre de trip sin importar stop
   positionBufferSize: 300, // últimas 300 posiciones (~5 minutos a 1 pos/seg)
+  orphanTripTimeout: 14400, // 4 horas - tiempo para considerar trip huérfano
 };

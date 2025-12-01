@@ -142,6 +142,41 @@ export class TrackerStateService {
   }
 
   /**
+   * Registra un overnight gap detectado
+   * Incrementa contador y actualiza diagnóstico de alimentación
+   */
+  async onOvernightGapDetected(deviceId: string, gapDurationSeconds: number): Promise<void> {
+    const state = await this.getState(deviceId);
+    if (!state) return;
+
+    // Incrementar contador de overnight gaps
+    state.overnightGapCount = (state.overnightGapCount || 0) + 1;
+    state.lastOvernightGapAt = new Date();
+
+    // Inferir tipo de conexión eléctrica basado en cantidad de gaps
+    // powerType indica cómo está conectado el tracker al vehículo:
+    // - 'permanent': Conectado a BAT+ (batería directa), siempre tiene energía
+    // - 'switched': Conectado a ACC/contacto, pierde energía cuando se apaga el vehículo
+    // - 'unknown': Sin datos suficientes para determinar
+    //
+    // Lógica de inferencia:
+    // - 0 gaps: unknown (no tenemos suficiente data, pero probablemente permanent)
+    // - 1-2 gaps: podría ser algo puntual, mantener unknown
+    // - 3+ gaps: patrón consistente → switched (conectado a contacto)
+    if (state.overnightGapCount >= 3) {
+      state.powerType = 'switched';
+    }
+
+    this.logger.warn(
+      `Overnight gap detected for ${deviceId}: ${Math.round(gapDurationSeconds / 3600)}h gap, ` +
+        `total overnight gaps: ${state.overnightGapCount}, power type: ${state.powerType}`,
+    );
+
+    await this.saveStateToRedis(deviceId, state);
+    await this.persistToDb(state); // Persistir inmediatamente (evento importante)
+  }
+
+  /**
    * Obtiene el estado completo de un tracker
    */
   async getTrackerStatus(trackerId: string): Promise<ITrackerStatus | null> {
@@ -218,6 +253,21 @@ export class TrackerStateService {
     // Calcular odómetro con offset (GPS + offset = odómetro real)
     const displayOdometer = state.totalOdometer + (state.odometerOffset || 0);
 
+    // Determinar si hay problema de energía y recomendación
+    // hasPowerIssue = true cuando se detecta conexión switched (ACC/contacto)
+    // Esto indica que el tracker pierde energía cuando el vehículo está apagado
+    const hasPowerIssue = (state.overnightGapCount || 0) >= 3;
+    let powerRecommendation: string | undefined;
+    if (hasPowerIssue) {
+      powerRecommendation =
+        'Tracker conectado a ACC/contacto (pierde energía al apagar). ' +
+        'Reconectar a BAT+ (12V directo) para tracking continuo, ' +
+        'o usar tracker con batería interna.';
+    } else if ((state.overnightGapCount || 0) >= 1) {
+      powerRecommendation =
+        'Se detectaron gaps nocturnos. Si continúa, verificar conexión eléctrica del tracker.';
+    }
+
     const status: ITrackerStatus = {
       trackerId: state.trackerId,
       deviceId: state.deviceId,
@@ -267,6 +317,14 @@ export class TrackerStateService {
       health: {
         status: healthStatus,
         lastSeenAgo,
+      },
+
+      powerDiagnostic: {
+        powerType: state.powerType || 'unknown',
+        overnightGapCount: state.overnightGapCount || 0,
+        lastOvernightGapAt: state.lastOvernightGapAt,
+        hasPowerIssue,
+        recommendation: powerRecommendation,
       },
     };
 
@@ -459,6 +517,9 @@ export class TrackerStateService {
       total_driving_time: state.totalDrivingTime,
       total_idle_time: state.totalIdleTime,
       total_stops_count: state.totalStopsCount,
+      overnight_gap_count: state.overnightGapCount || 0,
+      last_overnight_gap_at: state.lastOvernightGapAt || null,
+      power_type: state.powerType || 'unknown',
       first_seen_at: state.firstSeenAt,
       last_seen_at: state.lastSeenAt,
     });
@@ -500,6 +561,8 @@ export class TrackerStateService {
       totalDrivingTime: 0,
       totalIdleTime: 0,
       totalStopsCount: 0,
+      overnightGapCount: 0,
+      powerType: 'unknown',
       firstSeenAt: now,
       lastSeenAt: now,
       createdAt: now,
@@ -533,6 +596,9 @@ export class TrackerStateService {
       totalDrivingTime: entity.total_driving_time,
       totalIdleTime: entity.total_idle_time,
       totalStopsCount: entity.total_stops_count,
+      overnightGapCount: entity.overnight_gap_count || 0,
+      lastOvernightGapAt: entity.last_overnight_gap_at,
+      powerType: entity.power_type || 'unknown',
       firstSeenAt: entity.first_seen_at,
       lastSeenAt: entity.last_seen_at,
       createdAt: entity.created_at,

@@ -80,6 +80,21 @@ export class TrackerState {
   @Column({ type: 'int', name: 'total_stops_count', default: 0 })
   total_stops_count: number;
 
+  // Tracking de problemas de energía (overnight gaps)
+  @Column({ type: 'int', name: 'overnight_gap_count', default: 0 })
+  overnight_gap_count: number;
+
+  @Column({ type: 'timestamptz', name: 'last_overnight_gap_at', nullable: true })
+  last_overnight_gap_at: Date | null;
+
+  @Column({
+    type: 'varchar',
+    length: 20,
+    name: 'power_type',
+    default: 'unknown',
+  })
+  power_type: string;
+
   // Metadata
   @Column({ type: 'timestamptz', name: 'first_seen_at' })
   first_seen_at: Date;

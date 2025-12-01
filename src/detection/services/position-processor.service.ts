@@ -118,7 +118,16 @@ export class PositionProcessorService {
     position: IPositionEvent,
     result: any,
   ): Promise<void> {
-    const { actions, updatedState } = result;
+    const { actions, updatedState, overnightGap } = result;
+
+    // Si se detectó un overnight gap, notificar al TrackerStateService
+    // para tracking de problemas de energía
+    if (overnightGap?.detected) {
+      await this.trackerState.onOvernightGapDetected(
+        position.deviceId,
+        overnightGap.durationSeconds,
+      );
+    }
 
     try {
       // Obtener tracker state para incluir odómetro con offset en eventos
