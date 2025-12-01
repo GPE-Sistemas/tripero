@@ -276,6 +276,8 @@ export class ReportsService {
       longitude: stop.longitude,
       address: undefined, // Geocoding should be done by consuming service
       engineHours: undefined, // TODO: si se necesita
+      startOdometer: stop.start_odometer ?? undefined,
+      endOdometer: stop.end_odometer ?? undefined,
     }));
   }
 }

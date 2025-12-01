@@ -41,6 +41,12 @@ export class Stop {
   @Column({ type: 'text', name: 'reason', default: 'ignition_off' })
   reason: string; // 'ignition_off' | 'no_movement' | 'parking'
 
+  @Column({ type: 'float8', name: 'start_odometer', nullable: true })
+  start_odometer: number | null;
+
+  @Column({ type: 'float8', name: 'end_odometer', nullable: true })
+  end_odometer: number | null;
+
   @Column({ type: 'boolean', name: 'is_active', default: true })
   @Index()
   is_active: boolean;

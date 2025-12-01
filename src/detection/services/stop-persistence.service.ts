@@ -106,6 +106,7 @@ export class StopPersistenceService implements OnModuleInit {
         longitude,
         reason: event.reason,
         trip_id: event.tripId,
+        start_odometer: event.odometer,
         metadata: event.metadata,
       });
 
@@ -156,6 +157,7 @@ export class StopPersistenceService implements OnModuleInit {
         end_time: new Date(event.endTime),
         duration: event.duration,
         is_active: false,
+        end_odometer: event.odometer,
         metadata: event.metadata || stop.metadata || undefined,
       });
 
