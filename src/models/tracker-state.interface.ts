@@ -37,10 +37,25 @@ export interface ITrackerState {
   totalIdleTime: number; // segundos
   totalStopsCount: number;
 
-  // Tracking de problemas de energía (overnight gaps)
+  // Tracking de conexión eléctrica (inferido de overnight gaps)
   overnightGapCount: number; // Cantidad de gaps nocturnos detectados
   lastOvernightGapAt?: Date; // Fecha del último gap nocturno
-  powerType: 'permanent' | 'battery' | 'unknown'; // Tipo de alimentación inferido
+  /**
+   * Tipo de conexión eléctrica del tracker (inferido del comportamiento):
+   *
+   * - 'permanent': Conectado a batería permanente (BAT+/12V directo)
+   *   → El tracker siempre tiene energía, no presenta gaps nocturnos
+   *   → Comportamiento esperado: reporta 24/7
+   *
+   * - 'switched': Conectado a alimentación conmutada (ACC/contacto)
+   *   → El tracker pierde energía cuando se apaga el vehículo
+   *   → Comportamiento: gaps nocturnos frecuentes (>= 3 detectados)
+   *   → Puede o no tener batería interna (si la tiene, reporta ignition_off antes de morir)
+   *
+   * - 'unknown': Sin datos suficientes para determinar
+   *   → Tracker nuevo o con pocos días de operación
+   */
+  powerType: 'permanent' | 'switched' | 'unknown';
 
   // Metadata
   firstSeenAt: Date;
@@ -116,12 +131,25 @@ export interface ITrackerStatus {
     positionsToday?: number;
   };
 
-  // Diagnóstico de alimentación eléctrica
+  /**
+   * Diagnóstico de conexión eléctrica del tracker
+   * Inferido del análisis de gaps nocturnos
+   */
   powerDiagnostic?: {
-    powerType: 'permanent' | 'battery' | 'unknown';
+    /**
+     * Tipo de conexión eléctrica inferido:
+     * - 'permanent': BAT+ (siempre con energía)
+     * - 'switched': ACC/contacto (pierde energía al apagar)
+     * - 'unknown': sin datos suficientes
+     */
+    powerType: 'permanent' | 'switched' | 'unknown';
+    /** Cantidad de gaps nocturnos (>2h) detectados */
     overnightGapCount: number;
+    /** Fecha del último gap nocturno detectado */
     lastOvernightGapAt?: Date;
-    hasPowerIssue: boolean; // true si overnightGapCount >= 3
+    /** true si se detectó conexión conmutada (switched) - requiere atención */
+    hasPowerIssue: boolean;
+    /** Recomendación de acción si hay problema */
     recommendation?: string;
   };
 }

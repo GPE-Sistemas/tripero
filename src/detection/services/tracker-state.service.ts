@@ -153,12 +153,18 @@ export class TrackerStateService {
     state.overnightGapCount = (state.overnightGapCount || 0) + 1;
     state.lastOvernightGapAt = new Date();
 
-    // Inferir tipo de alimentación basado en cantidad de gaps
-    // - 0 gaps: unknown (no tenemos suficiente data)
+    // Inferir tipo de conexión eléctrica basado en cantidad de gaps
+    // powerType indica cómo está conectado el tracker al vehículo:
+    // - 'permanent': Conectado a BAT+ (batería directa), siempre tiene energía
+    // - 'switched': Conectado a ACC/contacto, pierde energía cuando se apaga el vehículo
+    // - 'unknown': Sin datos suficientes para determinar
+    //
+    // Lógica de inferencia:
+    // - 0 gaps: unknown (no tenemos suficiente data, pero probablemente permanent)
     // - 1-2 gaps: podría ser algo puntual, mantener unknown
-    // - 3+ gaps: patrón consistente, probablemente batería/mal instalado
+    // - 3+ gaps: patrón consistente → switched (conectado a contacto)
     if (state.overnightGapCount >= 3) {
-      state.powerType = 'battery';
+      state.powerType = 'switched';
     }
 
     this.logger.warn(
@@ -248,15 +254,18 @@ export class TrackerStateService {
     const displayOdometer = state.totalOdometer + (state.odometerOffset || 0);
 
     // Determinar si hay problema de energía y recomendación
+    // hasPowerIssue = true cuando se detecta conexión switched (ACC/contacto)
+    // Esto indica que el tracker pierde energía cuando el vehículo está apagado
     const hasPowerIssue = (state.overnightGapCount || 0) >= 3;
     let powerRecommendation: string | undefined;
     if (hasPowerIssue) {
       powerRecommendation =
-        'Este tracker presenta gaps nocturnos frecuentes. ' +
-        'Verificar conexión a batería del vehículo o considerar tracker con batería interna.';
+        'Tracker conectado a ACC/contacto (pierde energía al apagar). ' +
+        'Reconectar a BAT+ (12V directo) para tracking continuo, ' +
+        'o usar tracker con batería interna.';
     } else if ((state.overnightGapCount || 0) >= 1) {
       powerRecommendation =
-        'Se han detectado algunos gaps nocturnos. Monitorear si el patrón continúa.';
+        'Se detectaron gaps nocturnos. Si continúa, verificar conexión eléctrica del tracker.';
     }
 
     const status: ITrackerStatus = {
