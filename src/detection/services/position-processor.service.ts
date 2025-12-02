@@ -145,17 +145,21 @@ export class PositionProcessorService {
           `Discarding trip for device ${position.deviceId} without publishing event`,
         );
 
-        // Solo limpiar estado, NO publicar eventos ni notificar estadísticas
-        updatedState.currentTripId = undefined;
-        updatedState.tripStartTime = undefined;
-        updatedState.tripStartLat = undefined;
-        updatedState.tripStartLon = undefined;
-        updatedState.tripDistance = undefined;
-        updatedState.tripMaxSpeed = undefined;
-        updatedState.tripStopsCount = undefined;
-        updatedState.tripMetadata = undefined;
+        // Solo limpiar estado si NO vamos a iniciar uno nuevo inmediatamente
+        // Si startTrip también es true, el nuevo trip ya está inicializado en updatedState
+        // y limpiar aquí sobrescribiría los datos del nuevo trip
+        if (!actions.startTrip) {
+          updatedState.currentTripId = undefined;
+          updatedState.tripStartTime = undefined;
+          updatedState.tripStartLat = undefined;
+          updatedState.tripStartLon = undefined;
+          updatedState.tripDistance = undefined;
+          updatedState.tripMaxSpeed = undefined;
+          updatedState.tripStopsCount = undefined;
+          updatedState.tripMetadata = undefined;
 
-        await this.deviceState.saveDeviceState(updatedState);
+          await this.deviceState.saveDeviceState(updatedState);
+        }
       }
 
       // Finalizar trip (con evento)
@@ -225,17 +229,21 @@ export class PositionProcessorService {
           event.stopsCount,
         );
 
-        // Limpiar datos del trip en el estado
-        updatedState.currentTripId = undefined;
-        updatedState.tripStartTime = undefined;
-        updatedState.tripStartLat = undefined;
-        updatedState.tripStartLon = undefined;
-        updatedState.tripDistance = undefined;
-        updatedState.tripMaxSpeed = undefined;
-        updatedState.tripStopsCount = undefined;
-        updatedState.tripMetadata = undefined;
+        // Solo limpiar datos del trip si NO vamos a iniciar uno nuevo inmediatamente
+        // Si startTrip también es true, el nuevo trip ya está inicializado en updatedState
+        // y limpiar aquí sobrescribiría los datos del nuevo trip
+        if (!actions.startTrip) {
+          updatedState.currentTripId = undefined;
+          updatedState.tripStartTime = undefined;
+          updatedState.tripStartLat = undefined;
+          updatedState.tripStartLon = undefined;
+          updatedState.tripDistance = undefined;
+          updatedState.tripMaxSpeed = undefined;
+          updatedState.tripStopsCount = undefined;
+          updatedState.tripMetadata = undefined;
 
-        await this.deviceState.saveDeviceState(updatedState);
+          await this.deviceState.saveDeviceState(updatedState);
+        }
       }
 
       // Iniciar trip (DESPUÉS de finalizar el anterior para evitar race conditions)
