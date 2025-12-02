@@ -112,6 +112,10 @@ export class TripPersistenceService implements OnModuleInit {
       // Crear cliente subscriber separado usando el método del RedisService
       this.subscriber = this.redisService.createSubscriber();
 
+      // Obtener canales con prefijo (publish usa prefijo, así que subscribe también debe usarlo)
+      const tripStartedChannel = this.redisService.getPrefixedChannel('trip:started');
+      const tripCompletedChannel = this.redisService.getPrefixedChannel('trip:completed');
+
       // Manejar eventos - encolar para procesamiento secuencial por dispositivo
       this.subscriber.on('message', async (channel: string, message: string) => {
         try {
@@ -124,11 +128,11 @@ export class TripPersistenceService implements OnModuleInit {
           }
 
           // Encolar evento para procesamiento secuencial
-          if (channel === 'trip:started') {
+          if (channel === tripStartedChannel) {
             await this.eventQueueManager.enqueue(deviceId, async () => {
               await this.handleTripStarted(message);
             });
-          } else if (channel === 'trip:completed') {
+          } else if (channel === tripCompletedChannel) {
             await this.eventQueueManager.enqueue(deviceId, async () => {
               await this.handleTripCompleted(message);
             });
@@ -141,11 +145,11 @@ export class TripPersistenceService implements OnModuleInit {
         }
       });
 
-      // Suscribirse a canales
-      await this.subscriber.subscribe('trip:started');
-      await this.subscriber.subscribe('trip:completed');
+      // Suscribirse a canales con prefijo
+      await this.subscriber.subscribe(tripStartedChannel);
+      await this.subscriber.subscribe(tripCompletedChannel);
 
-      this.logger.log('Suscrito a eventos: trip:started, trip:completed');
+      this.logger.log(`Suscrito a eventos: ${tripStartedChannel}, ${tripCompletedChannel}`);
     } catch (error) {
       this.logger.error('Error suscribiéndose a eventos de trips', error.stack);
       throw error;
