@@ -274,6 +274,8 @@ export class PositionProcessorService {
         await this.trackerState.onTripStarted(
           position.deviceId,
           updatedState.currentTripId,
+          updatedState.tripStartLat,
+          updatedState.tripStartLon,
         );
       }
 

@@ -106,13 +106,20 @@ export class TrackerStateService {
   /**
    * Notifica inicio de trip (para actualizar contador)
    */
-  async onTripStarted(deviceId: string, tripId: string): Promise<void> {
+  async onTripStarted(
+    deviceId: string,
+    tripId: string,
+    startLat?: number,
+    startLon?: number,
+  ): Promise<void> {
     const state = await this.getState(deviceId);
     if (!state) return;
 
     state.currentTripId = tripId;
     state.tripStartTime = new Date();
     state.tripOdometerStart = state.totalOdometer;
+    state.tripStartLat = startLat;
+    state.tripStartLon = startLon;
 
     await this.saveStateToRedis(deviceId, state);
   }
@@ -132,6 +139,8 @@ export class TrackerStateService {
     state.currentTripId = undefined;
     state.tripStartTime = undefined;
     state.tripOdometerStart = undefined;
+    state.tripStartLat = undefined;
+    state.tripStartLon = undefined;
     state.totalTripsCount++;
     state.totalDrivingTime += drivingTime;
     state.totalIdleTime += idleTime;
@@ -230,6 +239,8 @@ export class TrackerStateService {
           avgSpeed: number;
           maxSpeed: number;
           odometerAtStart: number;
+          startLat?: number;
+          startLon?: number;
         }
       | undefined = undefined;
 
@@ -247,6 +258,8 @@ export class TrackerStateService {
         avgSpeed: tripDuration > 0 ? Math.round((tripDistance / tripDuration) * 3.6) : 0,
         maxSpeed: state.lastSpeed || 0, // TODO: Rastrear max speed del trip
         odometerAtStart: state.tripOdometerStart,
+        startLat: state.tripStartLat,
+        startLon: state.tripStartLon,
       };
     }
 
@@ -513,6 +526,8 @@ export class TrackerStateService {
       state_since: state.stateSince || null,
       current_trip_id: state.currentTripId || null,
       trip_start_time: state.tripStartTime || null,
+      trip_start_lat: state.tripStartLat || null,
+      trip_start_lon: state.tripStartLon || null,
       total_trips_count: state.totalTripsCount,
       total_driving_time: state.totalDrivingTime,
       total_idle_time: state.totalIdleTime,
@@ -592,6 +607,8 @@ export class TrackerStateService {
       stateSince: entity.state_since,
       currentTripId: entity.current_trip_id,
       tripStartTime: entity.trip_start_time,
+      tripStartLat: entity.trip_start_lat,
+      tripStartLon: entity.trip_start_lon,
       totalTripsCount: entity.total_trips_count,
       totalDrivingTime: entity.total_driving_time,
       totalIdleTime: entity.total_idle_time,
