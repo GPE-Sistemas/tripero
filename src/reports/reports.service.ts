@@ -134,7 +134,8 @@ export class ReportsService {
       .where('trip.start_time BETWEEN :fromDate AND :toDate', {
         fromDate,
         toDate,
-      });
+      })
+      .andWhere('trip.is_active = false');
 
     // Filtro por deviceId
     if (deviceIds && deviceIds.length > 0) {
@@ -199,7 +200,8 @@ export class ReportsService {
       .where('stop.start_time BETWEEN :fromDate AND :toDate', {
         fromDate,
         toDate,
-      });
+      })
+      .andWhere('stop.is_active = false');
 
     // Filtro por deviceId
     if (deviceIds && deviceIds.length > 0) {
