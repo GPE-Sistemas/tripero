@@ -67,6 +67,12 @@ export class TrackerState {
   @Column({ type: 'timestamptz', name: 'trip_start_time', nullable: true })
   trip_start_time: Date | null;
 
+  @Column({ type: 'float8', name: 'trip_start_lat', nullable: true })
+  trip_start_lat: number | null;
+
+  @Column({ type: 'float8', name: 'trip_start_lon', nullable: true })
+  trip_start_lon: number | null;
+
   // Estadísticas acumulativas
   @Column({ type: 'int', name: 'total_trips_count', default: 0 })
   total_trips_count: number;

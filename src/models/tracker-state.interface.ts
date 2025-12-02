@@ -30,6 +30,8 @@ export interface ITrackerState {
   // Trip actual
   currentTripId?: string;
   tripStartTime?: Date;
+  tripStartLat?: number;
+  tripStartLon?: number;
 
   // Estadísticas acumulativas
   totalTripsCount: number;
@@ -111,6 +113,8 @@ export interface ITrackerStatus {
     avgSpeed: number;
     maxSpeed: number;
     odometerAtStart: number;
+    startLat?: number;
+    startLon?: number;
   };
 
   statistics: {
