@@ -87,21 +87,40 @@ export class TripRepository {
     id_activo: string,
     startTime: Date,
     endTime: Date,
+    includeActive: boolean = false,
   ): Promise<Trip[]> {
+    const where: any = {
+      id_activo,
+      start_time: Between(startTime, endTime),
+    };
+
+    // Por defecto solo devolver trips completados
+    if (!includeActive) {
+      where.is_active = false;
+    }
+
     return await this.tripRepo.find({
-      where: {
-        id_activo,
-        start_time: Between(startTime, endTime),
-      },
+      where,
       order: { start_time: 'DESC' },
     });
   }
 
-  async findByTimeRange(startTime: Date, endTime: Date): Promise<Trip[]> {
+  async findByTimeRange(
+    startTime: Date,
+    endTime: Date,
+    includeActive: boolean = false,
+  ): Promise<Trip[]> {
+    const where: any = {
+      start_time: Between(startTime, endTime),
+    };
+
+    // Por defecto solo devolver trips completados
+    if (!includeActive) {
+      where.is_active = false;
+    }
+
     return await this.tripRepo.find({
-      where: {
-        start_time: Between(startTime, endTime),
-      },
+      where,
       order: { start_time: 'DESC' },
     });
   }
@@ -178,6 +197,7 @@ export class TripRepository {
         startTime,
         endTime,
       })
+      .andWhere('trip.is_active = false')
       .getRawOne();
 
     return {

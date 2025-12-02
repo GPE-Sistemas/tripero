@@ -82,21 +82,40 @@ export class StopRepository {
     id_activo: string,
     startTime: Date,
     endTime: Date,
+    includeActive: boolean = false,
   ): Promise<Stop[]> {
+    const where: any = {
+      id_activo,
+      start_time: Between(startTime, endTime),
+    };
+
+    // Por defecto solo devolver stops completados
+    if (!includeActive) {
+      where.is_active = false;
+    }
+
     return await this.stopRepo.find({
-      where: {
-        id_activo,
-        start_time: Between(startTime, endTime),
-      },
+      where,
       order: { start_time: 'DESC' },
     });
   }
 
-  async findByTimeRange(startTime: Date, endTime: Date): Promise<Stop[]> {
+  async findByTimeRange(
+    startTime: Date,
+    endTime: Date,
+    includeActive: boolean = false,
+  ): Promise<Stop[]> {
+    const where: any = {
+      start_time: Between(startTime, endTime),
+    };
+
+    // Por defecto solo devolver stops completados
+    if (!includeActive) {
+      where.is_active = false;
+    }
+
     return await this.stopRepo.find({
-      where: {
-        start_time: Between(startTime, endTime),
-      },
+      where,
       order: { start_time: 'DESC' },
     });
   }
@@ -154,6 +173,7 @@ export class StopRepository {
         startTime,
         endTime,
       })
+      .andWhere('stop.is_active = false')
       .getRawOne();
 
     return {
