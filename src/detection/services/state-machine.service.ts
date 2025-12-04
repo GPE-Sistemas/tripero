@@ -578,6 +578,48 @@ export class StateMachineService {
       actions.updateTrip = true;
     }
 
+    // IDLE prolongado: Si el vehículo está en IDLE por más de maxIdleDuration, cerrar el trip
+    // Esto evita trips "fantasma" que quedan abiertos indefinidamente cuando el vehículo
+    // tiene motor encendido pero no se mueve (ej: estacionado con motor encendido)
+    if (
+      newState === MotionState.IDLE &&
+      updatedState.currentTripId &&
+      updatedState.stateStartTime
+    ) {
+      const idleDuration = (updatedState.lastTimestamp - updatedState.stateStartTime) / 1000;
+
+      if (idleDuration >= this.thresholds.maxIdleDuration) {
+        const tripDuration =
+          (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) / 1000;
+        const tripDistance = updatedState.tripDistance || 0;
+
+        // Validar si el trip cumple con los mínimos para ser guardado
+        if (
+          tripDuration >= this.thresholds.minTripDuration &&
+          tripDistance >= this.thresholds.minTripDistance
+        ) {
+          actions.endTrip = true;
+          this.logger.log(
+            `Closing trip for device ${updatedState.deviceId} after ${Math.round(idleDuration)}s IDLE: ` +
+              `duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m ` +
+              `(maxIdleDuration=${this.thresholds.maxIdleDuration}s exceeded)`,
+          );
+        } else {
+          // Trip muy corto, marcarlo para cerrar sin guardar
+          actions.discardTrip = true;
+          this.logger.debug(
+            `Discarding trip for device ${updatedState.deviceId} after ${Math.round(idleDuration)}s IDLE: ` +
+              `duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m (below minimums)`,
+          );
+        }
+
+        // También cerrar el stop activo si existe
+        if (updatedState.currentStopId) {
+          actions.endStop = true;
+        }
+      }
+    }
+
     return actions;
   }
 
@@ -612,13 +654,38 @@ export class StateMachineService {
     //
     // El gap nocturno fuerza el cierre porque indica que el vehículo
     // estuvo inactivo por mucho tiempo (ej: tracker desconectado de noche)
-    const shouldEndTrip =
+    const shouldCloseTrip =
       !!currentState.currentTripId &&
       (stopDuration >= this.thresholds.minStopDuration || isOvernightGap);
 
+    // Si debemos cerrar el trip, validar si cumple con los mínimos para ser guardado
+    let shouldEndTrip = false;
+    let shouldDiscardTrip = false;
+
+    if (shouldCloseTrip) {
+      const tripDuration =
+        (position.timestamp - (currentState.tripStartTime || 0)) / 1000;
+      const tripDistance = currentState.tripDistance || 0;
+
+      // Validar mínimos
+      if (
+        tripDuration >= this.thresholds.minTripDuration &&
+        tripDistance >= this.thresholds.minTripDistance
+      ) {
+        shouldEndTrip = true;
+      } else {
+        // Trip muy corto, marcarlo para cerrar sin guardar
+        shouldDiscardTrip = true;
+        this.logger.debug(
+          `Discarding short trip for device ${position.deviceId} after gap: ` +
+            `duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m (below minimums)`,
+        );
+      }
+    }
+
     const actions: IStateTransitionResult['actions'] = {
       endTrip: shouldEndTrip,
-      discardTrip: false,
+      discardTrip: shouldDiscardTrip,
       startTrip: false,
       updateTrip: false,
       startStop: false,
@@ -638,7 +705,7 @@ export class StateMachineService {
           `stop was ${Math.round(stopDuration)}s (>= ${this.thresholds.minStopDuration}s threshold)`,
         );
       }
-    } else if (currentState.currentTripId) {
+    } else if (currentState.currentTripId && !shouldDiscardTrip) {
       this.logger.debug(
         `Keeping trip open for device ${position.deviceId} after ${Math.round(gapDuration)}s gap: ` +
         `stop was ${Math.round(stopDuration)}s (< ${this.thresholds.minStopDuration}s threshold), ` +
@@ -649,8 +716,8 @@ export class StateMachineService {
     // Reiniciar como si fuera primera posición
     const firstPosResult = this.handleFirstPosition(position);
 
-    // Si decidimos NO cerrar el trip, restaurar los datos del trip en el estado
-    if (!shouldEndTrip && currentState.currentTripId) {
+    // Si decidimos NO cerrar el trip (ni guardarlo ni descartarlo), restaurar los datos del trip en el estado
+    if (!shouldEndTrip && !shouldDiscardTrip && currentState.currentTripId) {
       firstPosResult.updatedState.currentTripId = currentState.currentTripId;
       firstPosResult.updatedState.tripStartTime = currentState.tripStartTime;
       firstPosResult.updatedState.tripStartLat = currentState.tripStartLat;
