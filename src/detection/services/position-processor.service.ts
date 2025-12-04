@@ -464,6 +464,14 @@ export class PositionProcessorService {
       };
 
       await this.eventPublisher.publishTrackerStateChanged(event);
+
+      // Sincronizar el estado de movimiento al TrackerState
+      // Esto permite que getTrackerStatus() retorne el estado correcto
+      await this.trackerState.updateMotionState(
+        position.deviceId,
+        result.newState as 'STOPPED' | 'MOVING' | 'IDLE',
+        position.timestamp,
+      );
     } catch (error) {
       this.logger.error(
         `Error publishing state change event for ${position.deviceId}`,
