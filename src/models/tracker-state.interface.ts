@@ -23,8 +23,8 @@ export interface ITrackerState {
   lastHeading?: number;
   lastAltitude?: number;
 
-  // Estado de movimiento
-  currentState?: 'STOPPED' | 'MOVING' | 'PAUSED' | 'UNKNOWN';
+  // Estado de movimiento (sincronizado desde motion-state)
+  currentState?: 'STOPPED' | 'MOVING' | 'IDLE' | 'UNKNOWN';
   stateSince?: Date;
 
   // Trip actual
@@ -89,7 +89,7 @@ export interface ITrackerStatus {
   };
 
   currentState: {
-    state: 'STOPPED' | 'MOVING' | 'PAUSED' | 'UNKNOWN' | 'OFFLINE';
+    state: 'STOPPED' | 'MOVING' | 'IDLE' | 'UNKNOWN' | 'OFFLINE';
     since: Date;
     duration: number; // segundos en este estado
   };

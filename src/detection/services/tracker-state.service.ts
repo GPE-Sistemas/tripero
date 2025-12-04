@@ -213,7 +213,7 @@ export class TrackerStateService {
     let currentStateEnum:
       | 'STOPPED'
       | 'MOVING'
-      | 'PAUSED'
+      | 'IDLE'
       | 'UNKNOWN'
       | 'OFFLINE' = state.currentState || 'UNKNOWN';
     if (healthStatus === 'offline') {
@@ -691,6 +691,51 @@ export class TrackerStateService {
     } catch (error) {
       this.logger.error(
         `Error updating ignition for ${deviceId}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Actualiza el estado de movimiento de un tracker
+   * Sincroniza el estado desde motion-state (STOPPED, MOVING, IDLE)
+   * Se llama cuando hay una transición de estado en la máquina de estados
+   */
+  async updateMotionState(
+    deviceId: string,
+    newState: 'STOPPED' | 'MOVING' | 'IDLE',
+    timestamp: number,
+  ): Promise<void> {
+    try {
+      let state = await this.getState(deviceId);
+
+      // Si no existe, crear estado inicial
+      if (!state) {
+        state = this.createInitialState(deviceId);
+        this.logger.log(`Creating new tracker state for ${deviceId}`);
+      }
+
+      const previousState = state.currentState;
+
+      // Solo actualizar si el estado cambió
+      if (previousState !== newState) {
+        state.currentState = newState;
+        state.stateSince = new Date(timestamp);
+        state.updatedAt = new Date();
+
+        // Guardar en Redis
+        await this.saveStateToRedis(deviceId, state);
+
+        // No persistir en BD en cada transición para evitar sobrecarga
+        // El estado se persistirá en la próxima persistencia periódica
+
+        this.logger.debug(
+          `Motion state updated for ${deviceId}: ${previousState ?? 'unknown'} → ${newState}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error updating motion state for ${deviceId}`,
         error.stack,
       );
     }

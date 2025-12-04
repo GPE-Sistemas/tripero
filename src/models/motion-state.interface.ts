@@ -2,7 +2,7 @@ export type MotionStateType =
   | 'STOPPED'
   | 'STARTING'
   | 'MOVING'
-  | 'PAUSED'
+  | 'IDLE'
   | 'STOPPING';
 
 export interface PositionSnapshot {
