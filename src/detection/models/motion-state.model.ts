@@ -137,6 +137,11 @@ export interface IDetectionThresholds {
   // Tiempo de inactividad para considerar un trip huérfano (segundos)
   // Trips sin posiciones por más de este tiempo serán cerrados por el cleanup job
   orphanTripTimeout: number;
+
+  // Duración máxima en estado IDLE antes de cerrar el trip (segundos)
+  // Si el vehículo está en IDLE (motor encendido, sin movimiento) por más de este tiempo,
+  // se cierra el trip automáticamente para evitar trips "fantasma" de larga duración
+  maxIdleDuration: number;
 }
 
 /**
@@ -151,4 +156,5 @@ export const DEFAULT_THRESHOLDS: IDetectionThresholds = {
   maxOvernightGapDuration: 7200, // 2 horas - fuerza cierre de trip sin importar stop
   positionBufferSize: 300, // últimas 300 posiciones (~5 minutos a 1 pos/seg)
   orphanTripTimeout: 14400, // 4 horas - tiempo para considerar trip huérfano
+  maxIdleDuration: 1800, // 30 minutos - cierra trip si está en IDLE por más de este tiempo
 };
