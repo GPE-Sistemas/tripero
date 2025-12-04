@@ -32,6 +32,7 @@ export interface ITrackerState {
   tripStartTime?: Date;
   tripStartLat?: number;
   tripStartLon?: number;
+  tripMaxSpeed?: number; // Velocidad máxima del trip actual (km/h)
 
   // Estadísticas acumulativas
   totalTripsCount: number;

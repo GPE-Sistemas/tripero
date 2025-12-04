@@ -73,6 +73,9 @@ export class TrackerState {
   @Column({ type: 'float8', name: 'trip_start_lon', nullable: true })
   trip_start_lon: number | null;
 
+  @Column({ type: 'float8', name: 'trip_max_speed', nullable: true })
+  trip_max_speed: number | null;
+
   // Estadísticas acumulativas
   @Column({ type: 'int', name: 'total_trips_count', default: 0 })
   total_trips_count: number;
