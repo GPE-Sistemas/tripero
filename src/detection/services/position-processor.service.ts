@@ -3,6 +3,7 @@ import {
   IPositionEvent,
   ITripStartedEvent,
   ITripCompletedEvent,
+  ITripDiscardedEvent,
   IStopStartedEvent,
   IStopCompletedEvent,
   ITrackerStateChangedEvent,
@@ -139,11 +140,44 @@ export class PositionProcessorService {
       // IMPORTANTE: Finalizar trip ANTES de iniciar nuevo para evitar race conditions
       // Usamos previousTrip cuando está disponible (auto-close) para tener los datos correctos
 
-      // Descartar trip (limpiar sin publicar evento)
+      // Descartar trip (publicar evento para eliminar de BD)
       if (actions.discardTrip) {
-        this.logger.debug(
-          `Discarding trip for device ${position.deviceId} without publishing event`,
-        );
+        // Obtener datos del trip a descartar
+        // Si startTrip también es true, los datos están en previousTrip (ya inicializamos nuevo)
+        // Si startTrip es false, los datos están en updatedState
+        const tripData = result.previousTrip || {
+          tripId: updatedState.currentTripId,
+          startTime: updatedState.tripStartTime || 0,
+          distance: updatedState.tripDistance || 0,
+        };
+
+        if (tripData.tripId) {
+          const tripDuration = (updatedState.lastTimestamp - tripData.startTime) / 1000;
+          const tripDistance = tripData.distance;
+
+          // Determinar razón del descarte
+          let reason: ITripDiscardedEvent['reason'] = 'below_minimums';
+          if (tripDuration < 60) {
+            reason = 'too_short';
+          } else if (tripDistance < 100) {
+            reason = 'too_small_distance';
+          }
+
+          const event: ITripDiscardedEvent = {
+            tripId: tripData.tripId,
+            deviceId: position.deviceId,
+            reason,
+            duration: Math.round(tripDuration),
+            distance: Math.round(tripDistance),
+          };
+
+          await this.eventPublisher.publishTripDiscarded(event);
+
+          this.logger.log(
+            `Discarding trip ${tripData.tripId} for device ${position.deviceId}: ` +
+              `${reason} (duration=${Math.round(tripDuration)}s, distance=${Math.round(tripDistance)}m)`,
+          );
+        }
 
         // Solo limpiar estado si NO vamos a iniciar uno nuevo inmediatamente
         // Si startTrip también es true, el nuevo trip ya está inicializado en updatedState

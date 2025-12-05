@@ -93,9 +93,9 @@ export class StateMachineService {
     );
 
     // IMPORTANTE: Guardar datos del trip anterior ANTES de inicializar el nuevo
-    // para evitar pérdida de datos cuando ambos endTrip y startTrip son true
+    // para evitar pérdida de datos cuando ambos endTrip/discardTrip y startTrip son true
     let previousTrip: IStateTransitionResult['previousTrip'] = undefined;
-    if (actions.endTrip && actions.startTrip && updatedState.currentTripId) {
+    if ((actions.endTrip || actions.discardTrip) && actions.startTrip && updatedState.currentTripId) {
       previousTrip = {
         tripId: updatedState.currentTripId,
         startTime: updatedState.tripStartTime || 0,

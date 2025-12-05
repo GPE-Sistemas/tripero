@@ -40,6 +40,7 @@ export const REDIS_CHANNELS = {
   // Eventos de trips
   TRIP_STARTED: 'trip:started',
   TRIP_COMPLETED: 'trip:completed',
+  TRIP_DISCARDED: 'trip:discarded',
 
   // Eventos de stops
   STOP_STARTED: 'stop:started',
