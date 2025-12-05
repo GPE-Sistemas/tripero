@@ -5,6 +5,7 @@ import { DeviceEventQueueManager } from './device-event-queue.manager';
 import {
   ITripStartedEvent,
   ITripCompletedEvent,
+  ITripDiscardedEvent,
 } from '../../interfaces/trip-events.interface';
 import { TripQualityAnalyzerService } from './trip-quality-analyzer.service';
 
@@ -15,6 +16,7 @@ import { TripQualityAnalyzerService } from './trip-quality-analyzer.service';
  * Eventos:
  * - trip:started - Crear registro de trip en BD
  * - trip:completed - Actualizar trip con datos finales
+ * - trip:discarded - Eliminar trip de BD (no cumplió mínimos)
  */
 @Injectable()
 export class TripPersistenceService implements OnModuleInit {
@@ -115,6 +117,7 @@ export class TripPersistenceService implements OnModuleInit {
       // Obtener canales con prefijo (publish usa prefijo, así que subscribe también debe usarlo)
       const tripStartedChannel = this.redisService.getPrefixedChannel('trip:started');
       const tripCompletedChannel = this.redisService.getPrefixedChannel('trip:completed');
+      const tripDiscardedChannel = this.redisService.getPrefixedChannel('trip:discarded');
 
       // Manejar eventos - encolar para procesamiento secuencial por dispositivo
       this.subscriber.on('message', async (channel: string, message: string) => {
@@ -136,6 +139,10 @@ export class TripPersistenceService implements OnModuleInit {
             await this.eventQueueManager.enqueue(deviceId, async () => {
               await this.handleTripCompleted(message);
             });
+          } else if (channel === tripDiscardedChannel) {
+            await this.eventQueueManager.enqueue(deviceId, async () => {
+              await this.handleTripDiscarded(message);
+            });
           }
         } catch (error) {
           this.logger.error(
@@ -148,8 +155,9 @@ export class TripPersistenceService implements OnModuleInit {
       // Suscribirse a canales con prefijo
       await this.subscriber.subscribe(tripStartedChannel);
       await this.subscriber.subscribe(tripCompletedChannel);
+      await this.subscriber.subscribe(tripDiscardedChannel);
 
-      this.logger.log(`Suscrito a eventos: ${tripStartedChannel}, ${tripCompletedChannel}`);
+      this.logger.log(`Suscrito a eventos: ${tripStartedChannel}, ${tripCompletedChannel}, ${tripDiscardedChannel}`);
     } catch (error) {
       this.logger.error('Error suscribiéndose a eventos de trips', error.stack);
       throw error;
@@ -287,6 +295,51 @@ export class TripPersistenceService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `Error completando trip en BD: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Maneja evento trip:discarded
+   * Elimina el trip de la BD porque no cumplió los mínimos
+   */
+  private async handleTripDiscarded(message: string): Promise<void> {
+    try {
+      const event: ITripDiscardedEvent = JSON.parse(message);
+
+      this.logger.debug(
+        `Eliminando trip descartado ${event.tripId} para device ${event.deviceId}`,
+      );
+
+      // Buscar trip por ID
+      const trip = await this.tripRepository.findById(event.tripId);
+
+      if (!trip) {
+        this.logger.debug(
+          `Trip ${event.tripId} no encontrado en BD (puede que aún no se haya persistido)`,
+        );
+        return;
+      }
+
+      // Verificar que el trip pertenece al dispositivo correcto
+      if (trip.id_activo !== event.deviceId) {
+        this.logger.error(
+          `Trip ${event.tripId} pertenece a device ${trip.id_activo}, no a ${event.deviceId}`,
+        );
+        return;
+      }
+
+      // Eliminar trip de la BD
+      await this.tripRepository.delete(event.tripId);
+
+      this.logger.log(
+        `Trip ${event.tripId} eliminado de BD para device ${event.deviceId}: ` +
+          `${event.reason} (duration=${event.duration}s, distance=${event.distance}m)`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error eliminando trip descartado de BD: ${error.message}`,
         error.stack,
       );
     }

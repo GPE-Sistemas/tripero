@@ -4,6 +4,7 @@ import { REDIS_CHANNELS } from '../../auxiliares/redis/redis.constants';
 import {
   ITripStartedEvent,
   ITripCompletedEvent,
+  ITripDiscardedEvent,
   IStopStartedEvent,
   IStopCompletedEvent,
   ITrackerStateChangedEvent,
@@ -43,6 +44,21 @@ export class EventPublisherService {
       );
     } catch (error) {
       this.logger.error(`Error publishing ${REDIS_CHANNELS.TRIP_COMPLETED}`, error.stack);
+    }
+  }
+
+  /**
+   * Publica evento de trip descartado (por no cumplir mínimos)
+   */
+  async publishTripDiscarded(event: ITripDiscardedEvent): Promise<void> {
+    try {
+      await this.redis.publish(REDIS_CHANNELS.TRIP_DISCARDED, JSON.stringify(event));
+      this.logger.log(
+        `Published ${REDIS_CHANNELS.TRIP_DISCARDED} for device ${event.deviceId}, trip ${event.tripId}: ` +
+          `${event.reason} (duration=${event.duration}s, distance=${event.distance}m)`,
+      );
+    } catch (error) {
+      this.logger.error(`Error publishing ${REDIS_CHANNELS.TRIP_DISCARDED}`, error.stack);
     }
   }
 

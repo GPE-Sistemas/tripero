@@ -74,3 +74,18 @@ export interface IStopCompletedEvent {
   odometer: number; // Odómetro total en metros (incluye offset)
   metadata?: Record<string, any>; // Metadata personalizado (ej: tenant_id, fleet_id, etc.)
 }
+
+/**
+ * Evento emitido cuando un trip es descartado por no cumplir los mínimos
+ * (duración < minTripDuration o distancia < minTripDistance)
+ *
+ * El trip ya fue creado en BD con trip:started, este evento indica
+ * que debe ser eliminado.
+ */
+export interface ITripDiscardedEvent {
+  tripId: string;
+  deviceId: string;
+  reason: 'too_short' | 'too_small_distance' | 'below_minimums';
+  duration: number; // Duración del trip descartado (segundos)
+  distance: number; // Distancia del trip descartado (metros)
+}

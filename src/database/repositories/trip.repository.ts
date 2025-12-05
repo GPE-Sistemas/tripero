@@ -222,6 +222,15 @@ export class TripRepository {
     );
   }
 
+  /**
+   * Elimina un trip por ID
+   * @returns true si se eliminó, false si no existía
+   */
+  async delete(id: string): Promise<boolean> {
+    const result = await this.tripRepo.delete({ id });
+    return (result.affected || 0) > 0;
+  }
+
   async deleteOldTrips(olderThan: Date): Promise<number> {
     const result = await this.tripRepo.delete({
       start_time: LessThanOrEqual(olderThan),
