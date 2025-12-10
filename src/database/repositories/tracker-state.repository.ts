@@ -22,7 +22,10 @@ export class TrackerStateRepository {
   /**
    * Crear o actualizar estado de un tracker
    */
-  async upsert(trackerId: string, data: Partial<TrackerState>): Promise<TrackerState> {
+  async upsert(
+    trackerId: string,
+    data: Partial<TrackerState>,
+  ): Promise<TrackerState> {
     let trackerState = await this.findByTrackerId(trackerId);
 
     if (trackerState) {
@@ -71,7 +74,10 @@ export class TrackerStateRepository {
   /**
    * Resetear odómetro de un tracker
    */
-  async resetOdometer(trackerId: string, newValue: number = 0): Promise<TrackerState> {
+  async resetOdometer(
+    trackerId: string,
+    newValue: number = 0,
+  ): Promise<TrackerState> {
     const trackerState = await this.findByTrackerId(trackerId);
 
     if (!trackerState) {
@@ -173,6 +179,20 @@ export class TrackerStateRepository {
       totalTrips,
       totalDrivingTime,
     };
+  }
+
+  /**
+   * Obtener múltiples trackers por sus IDs (bulk)
+   */
+  async findByTrackerIds(trackerIds: string[]): Promise<TrackerState[]> {
+    if (trackerIds.length === 0) {
+      return [];
+    }
+
+    return this.repository
+      .createQueryBuilder('tracker_state')
+      .where('tracker_state.tracker_id IN (:...trackerIds)', { trackerIds })
+      .getMany();
   }
 
   /**

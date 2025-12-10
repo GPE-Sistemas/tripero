@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TrackerStateRepository } from '../../database/repositories';
+import { TrackerState } from '../../database/entities';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { IPositionEvent } from '../../interfaces';
 import { ITrackerState, ITrackerStatus, IResetOdometer } from '../../models';
@@ -161,7 +162,10 @@ export class TrackerStateService {
    * Registra un overnight gap detectado
    * Incrementa contador y actualiza diagnóstico de alimentación
    */
-  async onOvernightGapDetected(deviceId: string, gapDurationSeconds: number): Promise<void> {
+  async onOvernightGapDetected(
+    deviceId: string,
+    gapDurationSeconds: number,
+  ): Promise<void> {
     const state = await this.getState(deviceId);
     if (!state) return;
 
@@ -251,7 +255,11 @@ export class TrackerStateService {
         }
       | undefined = undefined;
 
-    if (state.currentTripId && state.tripStartTime && state.tripOdometerStart !== undefined) {
+    if (
+      state.currentTripId &&
+      state.tripStartTime &&
+      state.tripOdometerStart !== undefined
+    ) {
       const tripDuration = Math.floor(
         (now - state.tripStartTime.getTime()) / 1000,
       );
@@ -262,7 +270,10 @@ export class TrackerStateService {
         startTime: state.tripStartTime,
         duration: tripDuration,
         distance: Math.round(tripDistance),
-        avgSpeed: tripDuration > 0 ? Math.round((tripDistance / tripDuration) * 3.6) : 0,
+        avgSpeed:
+          tripDuration > 0
+            ? Math.round((tripDistance / tripDuration) * 3.6)
+            : 0,
         maxSpeed: state.tripMaxSpeed || 0,
         odometerAtStart: state.tripOdometerStart,
         startLat: state.tripStartLat,
@@ -307,25 +318,27 @@ export class TrackerStateService {
         duration: stateDuration,
       },
 
-      lastPosition: state.lastLatitude && state.lastLongitude
-        ? {
-            timestamp: state.lastPositionTime || new Date(),
-            latitude: state.lastLatitude,
-            longitude: state.lastLongitude,
-            speed: state.lastSpeed || 0,
-            ignition: state.lastIgnition || false,
-            heading: state.lastHeading,
-            altitude: state.lastAltitude,
-            age: lastSeenAgo,
-          }
-        : undefined,
+      lastPosition:
+        state.lastLatitude && state.lastLongitude
+          ? {
+              timestamp: state.lastPositionTime || new Date(),
+              latitude: state.lastLatitude,
+              longitude: state.lastLongitude,
+              speed: state.lastSpeed || 0,
+              ignition: state.lastIgnition || false,
+              heading: state.lastHeading,
+              altitude: state.lastAltitude,
+              age: lastSeenAgo,
+            }
+          : undefined,
 
       currentTrip,
 
       statistics: {
         totalTrips: state.totalTripsCount,
         totalDrivingTime: state.totalDrivingTime,
-        totalDrivingHours: Math.round((state.totalDrivingTime / 3600) * 10) / 10,
+        totalDrivingHours:
+          Math.round((state.totalDrivingTime / 3600) * 10) / 10,
         totalIdleTime: state.totalIdleTime,
         totalIdleHours: Math.round((state.totalIdleTime / 3600) * 10) / 10,
         totalStops: state.totalStopsCount,
@@ -392,7 +405,8 @@ export class TrackerStateService {
       throw new Error(`Tracker ${trackerId} not found`);
     }
 
-    const previousDisplayOdometer = state.totalOdometer + (state.odometerOffset || 0);
+    const previousDisplayOdometer =
+      state.totalOdometer + (state.odometerOffset || 0);
 
     // Calcular nuevo offset: initialOdometer - totalOdometer (GPS)
     const newOffset = initialOdometer - state.totalOdometer;
@@ -414,6 +428,99 @@ export class TrackerStateService {
       newOdometer: Math.round(initialOdometer),
       odometerOffset: Math.round(newOffset),
     };
+  }
+
+  /**
+   * Obtiene el estado de movimiento actual de múltiples trackers en una sola consulta
+   * Solo retorna currentState (STOPPED/MOVING/IDLE/UNKNOWN/OFFLINE)
+   */
+  async getBulkCurrentState(
+    trackerIds: string[],
+  ): Promise<
+    Record<string, 'STOPPED' | 'MOVING' | 'IDLE' | 'UNKNOWN' | 'OFFLINE'>
+  > {
+    if (trackerIds.length === 0) {
+      return {};
+    }
+
+    const results: Record<
+      string,
+      'STOPPED' | 'MOVING' | 'IDLE' | 'UNKNOWN' | 'OFFLINE'
+    > = {};
+    const now = Date.now();
+
+    // Intentar obtener desde Redis primero (en paralelo)
+    const redisPromises = trackerIds.map(async (trackerId) => ({
+      trackerId,
+      state: await this.getStateFromRedis(trackerId),
+    }));
+
+    const redisResults = await Promise.all(redisPromises);
+    const notFoundInRedis: string[] = [];
+
+    // Procesar estados de Redis
+    for (const { trackerId, state } of redisResults) {
+      if (state) {
+        const lastSeenAt = state.lastSeenAt ? state.lastSeenAt.getTime() : 0;
+        const lastSeenAgo = Math.floor((now - lastSeenAt) / 1000);
+
+        // Determinar health status
+        const isOffline = lastSeenAgo >= 24 * 60 * 60; // 24 horas
+
+        // Si está offline, reportar OFFLINE
+        if (isOffline) {
+          results[trackerId] = 'OFFLINE';
+        } else {
+          results[trackerId] = state.currentState || 'UNKNOWN';
+        }
+      } else {
+        notFoundInRedis.push(trackerId);
+      }
+    }
+
+    // Si hay trackers no encontrados en Redis, buscar en PostgreSQL
+    if (notFoundInRedis.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      const dbStates = (await this.trackerStateRepository.findByTrackerIds(
+        notFoundInRedis,
+      )) as TrackerState[];
+
+      for (const dbState of dbStates) {
+        const lastSeenAt = dbState.last_seen_at
+          ? dbState.last_seen_at.getTime()
+          : 0;
+        const lastSeenAgo = Math.floor((now - lastSeenAt) / 1000);
+
+        // Determinar health status
+        const isOffline = lastSeenAgo >= 24 * 60 * 60; // 24 horas
+
+        // Si está offline, reportar OFFLINE
+        if (isOffline) {
+          results[dbState.tracker_id] = 'OFFLINE';
+        } else {
+          const currentState = dbState.current_state as
+            | 'STOPPED'
+            | 'MOVING'
+            | 'IDLE'
+            | null;
+          results[dbState.tracker_id] = currentState || 'UNKNOWN';
+        }
+
+        // Guardar en Redis para próximas consultas
+        const state = this.mapEntityToInterface(dbState);
+        await this.saveStateToRedis(dbState.tracker_id, state);
+      }
+
+      // Los que no están ni en Redis ni en PostgreSQL, marcar como UNKNOWN
+      const foundIds = new Set([...Object.keys(results)]);
+      for (const trackerId of notFoundInRedis) {
+        if (!foundIds.has(trackerId)) {
+          results[trackerId] = 'UNKNOWN';
+        }
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -452,9 +559,8 @@ export class TrackerStateService {
 
     // Si no está en Redis, cargar desde PostgreSQL
     if (!state) {
-      const dbState = await this.trackerStateRepository.findByTrackerId(
-        trackerId,
-      );
+      const dbState =
+        await this.trackerStateRepository.findByTrackerId(trackerId);
       if (dbState) {
         state = this.mapEntityToInterface(dbState);
         // Guardar en Redis para próxima vez
@@ -698,10 +804,7 @@ export class TrackerStateService {
         `Ignition updated for ${deviceId}: ${previousIgnition ?? 'unknown'} → ${ignition}`,
       );
     } catch (error) {
-      this.logger.error(
-        `Error updating ignition for ${deviceId}`,
-        error.stack,
-      );
+      this.logger.error(`Error updating ignition for ${deviceId}`, error.stack);
     }
   }
 
