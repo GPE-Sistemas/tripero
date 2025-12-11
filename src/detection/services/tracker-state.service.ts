@@ -471,7 +471,16 @@ export class TrackerStateService {
         if (isOffline) {
           results[trackerId] = 'OFFLINE';
         } else {
-          results[trackerId] = state.currentState || 'UNKNOWN';
+          // Extraer el estado: puede ser string directo o un objeto {state, since, duration}
+          const currentState = state.currentState;
+          if (typeof currentState === 'string') {
+            results[trackerId] = currentState || 'UNKNOWN';
+          } else if (currentState && typeof currentState === 'object') {
+            // Si es un objeto, extraer solo la propiedad 'state'
+            results[trackerId] = (currentState as any).state || 'UNKNOWN';
+          } else {
+            results[trackerId] = 'UNKNOWN';
+          }
         }
       } else {
         notFoundInRedis.push(trackerId);
