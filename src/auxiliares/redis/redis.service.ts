@@ -147,6 +147,23 @@ export class RedisService implements OnModuleInit {
     }
   }
 
+  async mget<T = any>(keys: string[]): Promise<(T | null)[]> {
+    await this.waitForConnection();
+    if (keys.length === 0) return [];
+
+    const prefixedKeys = keys.map((k) => this.prefixKey(k));
+    const results = await this.client.mget(...prefixedKeys);
+
+    return results.map((result) => {
+      if (!result) return null;
+      try {
+        return JSON.parse(result) as T;
+      } catch {
+        return result as any;
+      }
+    });
+  }
+
   async del(key: string | string[]): Promise<number> {
     await this.waitForConnection();
     if (Array.isArray(key)) {

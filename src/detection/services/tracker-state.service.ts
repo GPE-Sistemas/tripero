@@ -449,19 +449,22 @@ export class TrackerStateService {
     > = {};
     const now = Date.now();
 
-    // Intentar obtener desde Redis primero (en paralelo)
-    const redisPromises = trackerIds.map(async (trackerId) => ({
-      trackerId,
-      state: await this.getStateFromRedis(trackerId),
-    }));
+    // Obtener todos los estados desde Redis en una sola operación (MGET)
+    const redisKeys = trackerIds.map((id) => `${this.REDIS_KEY_PREFIX}${id}`);
+    const redisValues = await this.redisService.mget<ITrackerState>(
+      redisKeys.map((key) => key.replace(this.REDIS_KEY_PREFIX, '')),
+    );
 
-    const redisResults = await Promise.all(redisPromises);
     const notFoundInRedis: string[] = [];
 
     // Procesar estados de Redis
-    for (const { trackerId, state } of redisResults) {
+    trackerIds.forEach((trackerId, index) => {
+      const state = redisValues[index];
+
       if (state) {
-        const lastSeenAt = state.lastSeenAt ? state.lastSeenAt.getTime() : 0;
+        const lastSeenAt = state.lastSeenAt
+          ? new Date(state.lastSeenAt).getTime()
+          : 0;
         const lastSeenAgo = Math.floor((now - lastSeenAt) / 1000);
 
         // Determinar health status
@@ -485,7 +488,7 @@ export class TrackerStateService {
       } else {
         notFoundInRedis.push(trackerId);
       }
-    }
+    });
 
     // Si hay trackers no encontrados en Redis, buscar en PostgreSQL
     if (notFoundInRedis.length > 0) {
