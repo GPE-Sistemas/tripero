@@ -183,6 +183,7 @@ export class TrackerStateRepository {
 
   /**
    * Obtener múltiples trackers por sus IDs (bulk)
+   * Solo trae los campos necesarios para calcular el estado actual
    */
   async findByTrackerIds(trackerIds: string[]): Promise<TrackerState[]> {
     if (trackerIds.length === 0) {
@@ -191,6 +192,12 @@ export class TrackerStateRepository {
 
     return this.repository
       .createQueryBuilder('tracker_state')
+      .select([
+        'tracker_state.id',
+        'tracker_state.tracker_id',
+        'tracker_state.current_state',
+        'tracker_state.last_seen_at',
+      ])
       .where('tracker_state.tracker_id IN (:...trackerIds)', { trackerIds })
       .getMany();
   }
