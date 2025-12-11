@@ -102,9 +102,26 @@ export class TrackersController {
       // Usar método optimizado que consulta Redis en paralelo y PostgreSQL en batch
       const results =
         await this.trackerStateService.getBulkCurrentState(trackerIds);
+      // Separar encontrados de no encontrados
+      const found: Record<string, string> = {};
+      const notFound: string[] = [];
 
-      // Retornar directamente el objeto con trackerId: estado
-      return results;
+      for (const trackerId of trackerIds) {
+        const state = results[trackerId];
+        if (state && state !== 'UNKNOWN') {
+          found[trackerId] = state;
+        } else {
+          notFound.push(trackerId);
+        }
+      }
+
+      return {
+        success: true,
+        data: found,
+        notFound,
+        total: trackerIds.length,
+        found: Object.keys(found).length,
+      };
     } catch (error) {
       this.logger.error('Error getting bulk tracker status', error.stack);
       throw new HttpException(
