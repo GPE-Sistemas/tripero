@@ -182,20 +182,6 @@ export class TrackerStateRepository {
   }
 
   /**
-   * Obtener múltiples trackers por sus IDs (bulk)
-   */
-  async findByTrackerIds(trackerIds: string[]): Promise<TrackerState[]> {
-    if (trackerIds.length === 0) {
-      return [];
-    }
-
-    return this.repository
-      .createQueryBuilder('tracker_state')
-      .where('tracker_state.tracker_id IN (:...trackerIds)', { trackerIds })
-      .getMany();
-  }
-
-  /**
    * Eliminar tracker (use con precaución)
    */
   async delete(trackerId: string): Promise<void> {

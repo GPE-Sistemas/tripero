@@ -11,14 +11,13 @@ import {
 } from '@nestjs/common';
 import { TrackerStateService } from '../detection/services';
 import type { IResetOdometer } from '../models';
-import { SetOdometerDto, BulkStatusDto } from './dto';
+import { SetOdometerDto } from './dto';
 
 /**
  * Controller para consultar estado de trackers
  *
  * Endpoints:
  * - GET /trackers/:trackerId/status - Estado completo de un tracker
- * - POST /trackers/status/bulk - Estado de múltiples trackers
  * - GET /trackers - Lista de trackers
  * - GET /trackers/stats - Estadísticas globales
  * - POST /trackers/:trackerId/odometer/reset - Resetear odómetro
@@ -73,61 +72,6 @@ export class TrackersController {
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Error getting tracker status',
-          error: 'Internal Server Error',
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * POST /trackers/status/bulk
-   *
-   * Obtiene el estado actual de múltiples trackers de forma optimizada
-   *
-   * Body: { trackerIds: ["TRACKER001", "TRACKER002", ...] }
-   *
-   * Retorna solo el currentState de cada tracker:
-   * - STOPPED: Vehículo detenido con ignición apagada
-   * - MOVING: Vehículo en movimiento
-   * - IDLE: Vehículo detenido con ignición encendida
-   * - OFFLINE: Sin reportar por más de 24 horas
-   * - UNKNOWN: Tracker no encontrado o sin datos suficientes
-   */
-  @Post('status/bulk')
-  async getBulkTrackerStatus(@Body() bulkStatusDto: BulkStatusDto) {
-    try {
-      const { trackerIds } = bulkStatusDto;
-
-      // Usar método optimizado que consulta Redis en paralelo y PostgreSQL en batch
-      const results =
-        await this.trackerStateService.getBulkCurrentState(trackerIds);
-      // Separar encontrados de no encontrados
-      const found: Record<string, string> = {};
-      const notFound: string[] = [];
-
-      for (const trackerId of trackerIds) {
-        const state = results[trackerId];
-        if (state && state !== 'UNKNOWN') {
-          found[trackerId] = state;
-        } else {
-          notFound.push(trackerId);
-        }
-      }
-
-      return {
-        success: true,
-        data: found,
-        notFound,
-        total: trackerIds.length,
-        found: Object.keys(found).length,
-      };
-    } catch (error) {
-      this.logger.error('Error getting bulk tracker status', error.stack);
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          message: 'Error getting bulk tracker status',
           error: 'Internal Server Error',
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
