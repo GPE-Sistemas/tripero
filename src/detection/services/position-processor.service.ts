@@ -12,6 +12,7 @@ import { StateMachineService } from './state-machine.service';
 import { DeviceStateService } from './device-state.service';
 import { EventPublisherService } from './event-publisher.service';
 import { TrackerStateService } from './tracker-state.service';
+import { TripRepository } from '../../database/repositories/trip.repository';
 import { MotionState } from '../models';
 
 /**
@@ -31,11 +32,16 @@ export class PositionProcessorService {
   private processedCount = 0;
   private errorCount = 0;
 
+  // Cache para throttling de updates de trips (tripId -> last update timestamp)
+  private lastTripUpdateTime = new Map<string, number>();
+  private readonly TRIP_UPDATE_THROTTLE_MS = 60000; // 60 segundos
+
   constructor(
     private readonly stateMachine: StateMachineService,
     private readonly deviceState: DeviceStateService,
     private readonly eventPublisher: EventPublisherService,
     private readonly trackerState: TrackerStateService,
+    private readonly tripRepository: TripRepository,
   ) {
     // Log de métricas cada minuto
     setInterval(() => {
@@ -45,6 +51,17 @@ export class PositionProcessorService {
       this.processedCount = 0;
       this.errorCount = 0;
     }, 60000);
+
+    // Cleanup del cache de throttling cada 10 minutos
+    setInterval(() => {
+      const now = Date.now();
+      const cutoff = now - this.TRIP_UPDATE_THROTTLE_MS * 2;
+      for (const [tripId, timestamp] of this.lastTripUpdateTime.entries()) {
+        if (timestamp < cutoff) {
+          this.lastTripUpdateTime.delete(tripId);
+        }
+      }
+    }, 600000);
   }
 
   /**
@@ -94,6 +111,10 @@ export class PositionProcessorService {
             `(${result.reason})`,
         );
       }
+
+      // 8. Actualizar updated_at del trip si hay uno activo (throttled)
+      // Esto permite que el cleanup detecte trips huérfanos cuando el tracker deja de reportar
+      await this.updateTripTimestamp(result.updatedState.currentTripId);
 
       this.processedCount++;
 
@@ -521,6 +542,31 @@ export class PositionProcessorService {
     if (durationSeconds === 0) return 0;
     // (metros / segundos) * 3.6 = km/h
     return Math.round((distanceMeters / durationSeconds) * 3.6);
+  }
+
+  /**
+   * Actualiza el timestamp updated_at del trip en la BD (con throttling)
+   * Permite que el cleanup detecte trips huérfanos cuando el tracker deja de reportar
+   */
+  private async updateTripTimestamp(tripId: string | undefined): Promise<void> {
+    if (!tripId) return;
+
+    try {
+      const now = Date.now();
+      const lastUpdate = this.lastTripUpdateTime.get(tripId);
+
+      // Solo actualizar si pasaron más de 60 segundos desde el último update
+      if (!lastUpdate || (now - lastUpdate) > this.TRIP_UPDATE_THROTTLE_MS) {
+        await this.tripRepository.touchTrip(tripId);
+        this.lastTripUpdateTime.set(tripId, now);
+        this.logger.debug(`Updated trip ${tripId} timestamp (last update was ${lastUpdate ? Math.round((now - lastUpdate) / 1000) : 'never'}s ago)`);
+      }
+    } catch (error) {
+      // No lanzar error, solo loguearlo - no queremos que falle el procesamiento de posiciones
+      this.logger.error(
+        `Error updating trip timestamp for ${tripId}: ${error.message}`,
+      );
+    }
   }
 
   /**
