@@ -153,8 +153,8 @@ export const DEFAULT_THRESHOLDS: IDetectionThresholds = {
   minTripDuration: 60, // 1 minuto
   minStopDuration: 300, // 5 minutos (igual que Traccar) - duración mínima para segmentar trips
   maxGapDuration: 600, // 10 minutos
-  maxOvernightGapDuration: 7200, // 2 horas - fuerza cierre de trip sin importar stop
+  maxOvernightGapDuration: 1800, // 30 minutos - fuerza cierre de trip sin importar stop (reducido de 2h)
   positionBufferSize: 300, // últimas 300 posiciones (~5 minutos a 1 pos/seg)
-  orphanTripTimeout: 14400, // 4 horas - tiempo para considerar trip huérfano
+  orphanTripTimeout: 1800, // 30 minutos - tiempo para considerar trip huérfano (reducido de 4h)
   maxIdleDuration: 1800, // 30 minutos - cierra trip si está en IDLE por más de este tiempo
 };

@@ -34,74 +34,7 @@ export class TripPersistenceService implements OnModuleInit {
    * Al iniciar el módulo, suscribirse a eventos de trips
    */
   async onModuleInit() {
-    await this.cleanupOrphanTrips();
     await this.subscribeToTripEvents();
-  }
-
-  /**
-   * Cierra trips huérfanos que no se actualizaron en más de 24 horas
-   * Esto maneja casos donde:
-   * - El servicio se reinició y perdió estado en Redis
-   * - Dispositivos dejaron de reportar permanentemente
-   * - Bugs que dejaron trips sin cerrar
-   */
-  private async cleanupOrphanTrips(): Promise<void> {
-    try {
-      this.logger.log('Verificando trips huérfanos...');
-
-      // Buscar trips activos sin actualización en las últimas 24 horas
-      const orphanTrips = await this.tripRepository.findOrphanTrips(24);
-
-      if (orphanTrips.length === 0) {
-        this.logger.log('No se encontraron trips huérfanos');
-        return;
-      }
-
-      this.logger.warn(
-        `Encontrados ${orphanTrips.length} trips huérfanos sin actualización en 24+ horas`,
-      );
-
-      // Cerrar cada trip huérfano
-      for (const trip of orphanTrips) {
-        try {
-          // Calcular duración desde inicio hasta última actualización
-          const duration = Math.floor(
-            (trip.updated_at.getTime() - trip.start_time.getTime()) / 1000,
-          );
-
-          await this.tripRepository.update(trip.id, {
-            end_time: trip.updated_at, // Usar última actualización como fin
-            is_active: false,
-            metadata: {
-              ...(trip.metadata || {}),
-              closedBy: 'orphan_cleanup',
-              cleanupReason: 'no_update_24h',
-              originalUpdatedAt: trip.updated_at.toISOString(),
-            },
-          });
-
-          this.logger.log(
-            `Trip huérfano ${trip.id} cerrado automáticamente ` +
-              `(device: ${trip.id_activo}, última actualización: ${trip.updated_at.toISOString()})`,
-          );
-        } catch (error) {
-          this.logger.error(
-            `Error cerrando trip huérfano ${trip.id}: ${error.message}`,
-            error.stack,
-          );
-        }
-      }
-
-      this.logger.log(
-        `Limpieza de trips huérfanos completada: ${orphanTrips.length} trips cerrados`,
-      );
-    } catch (error) {
-      this.logger.error(
-        'Error en limpieza de trips huérfanos',
-        error.stack,
-      );
-      // No lanzar error para no bloquear inicio del servicio
-    }
   }
 
   /**

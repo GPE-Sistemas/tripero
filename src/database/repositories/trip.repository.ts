@@ -174,6 +174,14 @@ export class TripRepository {
     return await this.tripRepo.save(trip);
   }
 
+  /**
+   * Actualiza el timestamp updated_at del trip para indicar actividad reciente
+   * Usado para detectar trips huérfanos (sin posiciones recientes)
+   */
+  async touchTrip(id: string): Promise<void> {
+    await this.tripRepo.update({ id }, { updated_at: new Date() });
+  }
+
   async getStatsByAsset(
     id_activo: string,
     startTime: Date,
