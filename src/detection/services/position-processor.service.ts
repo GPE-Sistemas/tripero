@@ -271,7 +271,10 @@ export class PositionProcessorService {
           detectionMethod: position.ignition ? 'ignition' : 'motion',
           currentState: (updatedState.currentMotionState || 'STOPPED') as 'STOPPED' | 'IDLE' | 'MOVING',
           odometer: Math.round(displayOdometer),
-          metadata: updatedState.tripMetadata,
+          metadata: {
+            ...updatedState.tripMetadata,
+            closureType: 'natural', // Trip cerrado por cambio de estado del vehículo
+          },
         };
 
         await this.eventPublisher.publishTripCompleted(event);
@@ -403,7 +406,10 @@ export class PositionProcessorService {
           reason: updatedState.stopReason || 'no_movement',
           currentState: (updatedState.currentMotionState || 'MOVING') as 'STOPPED' | 'IDLE' | 'MOVING',
           odometer: Math.round(displayOdometer),
-          metadata: updatedState.stopMetadata,
+          metadata: {
+            ...updatedState.stopMetadata,
+            closureType: 'natural', // Stop cerrado por cambio de estado del vehículo
+          },
         };
 
         await this.eventPublisher.publishStopCompleted(event);
