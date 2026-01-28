@@ -95,7 +95,11 @@ export class StateMachineService {
     // IMPORTANTE: Guardar datos del trip anterior ANTES de inicializar el nuevo
     // para evitar pérdida de datos cuando ambos endTrip/discardTrip y startTrip son true
     let previousTrip: IStateTransitionResult['previousTrip'] = undefined;
-    if ((actions.endTrip || actions.discardTrip) && actions.startTrip && updatedState.currentTripId) {
+    if (
+      (actions.endTrip || actions.discardTrip) &&
+      actions.startTrip &&
+      updatedState.currentTripId
+    ) {
       previousTrip = {
         tripId: updatedState.currentTripId,
         startTime: updatedState.tripStartTime || 0,
@@ -315,14 +319,6 @@ export class StateMachineService {
     currentState: IDeviceMotionState,
     newState: MotionState,
   ): IDeviceMotionState {
-    // Calcular distancia desde última posición
-    const distance = this.calculateDistance(
-      currentState.lastLat,
-      currentState.lastLon,
-      position.latitude,
-      position.longitude,
-    );
-
     // Actualizar buffer de posiciones recientes
     const recentPositions = [
       ...(currentState.recentPositions || []),
@@ -401,22 +397,27 @@ export class StateMachineService {
       );
 
       // Actualizar contexto del trip con la nueva posición
-      const updatedContext = this.distanceValidator.updateTripContext(tripContext, {
-        lat: position.latitude,
-        lon: position.longitude,
-        timestamp: position.timestamp,
-        speed: position.speed,
-        ignition: position.ignition ?? false,
-      });
+      const updatedContext = this.distanceValidator.updateTripContext(
+        tripContext,
+        {
+          lat: position.latitude,
+          lon: position.longitude,
+          timestamp: position.timestamp,
+          speed: position.speed,
+          ignition: position.ignition ?? false,
+        },
+      );
 
       // Aplicar contexto actualizado al estado
-      updatedState.tripMaxDistanceFromOrigin = updatedContext.maxDistanceFromOrigin;
+      updatedState.tripMaxDistanceFromOrigin =
+        updatedContext.maxDistanceFromOrigin;
       updatedState.tripBoundingBox = updatedContext.boundingBox;
       updatedState.tripSpeedSum = updatedContext.speedSum;
       updatedState.tripPositionCount = updatedContext.positionCount;
 
       // Usar distancia ajustada (0 si es ruido GPS, completa si es movimiento real)
-      updatedState.tripDistance = (currentState.tripDistance || 0) + validation.adjustedDistance;
+      updatedState.tripDistance =
+        (currentState.tripDistance || 0) + validation.adjustedDistance;
 
       updatedState.tripMaxSpeed = Math.max(
         currentState.tripMaxSpeed || 0,
@@ -435,8 +436,10 @@ export class StateMachineService {
       }
 
       updatedState.tripQualityMetrics.segmentsTotal++;
-      updatedState.tripQualityMetrics.originalDistance += validation.originalDistance;
-      updatedState.tripQualityMetrics.adjustedDistance += validation.adjustedDistance;
+      updatedState.tripQualityMetrics.originalDistance +=
+        validation.originalDistance;
+      updatedState.tripQualityMetrics.adjustedDistance +=
+        validation.adjustedDistance;
 
       // Registrar si fue ruido GPS
       if (validation.metadata.isGpsNoise) {
@@ -538,7 +541,10 @@ export class StateMachineService {
 
     // MOVING → STOPPED: Iniciar stop (NO finalizar trip aún)
     // El trip se finalizará cuando se reanude el movimiento solo si el stop duró >= minStopDuration
-    if (previousState === MotionState.MOVING && newState === MotionState.STOPPED) {
+    if (
+      previousState === MotionState.MOVING &&
+      newState === MotionState.STOPPED
+    ) {
       // Iniciar stop - el trip continúa abierto hasta que se determine si el stop es lo suficientemente largo
       actions.startStop = true;
 
@@ -558,7 +564,10 @@ export class StateMachineService {
     }
 
     // IDLE → STOPPED: Finalizar stop actual e iniciar nuevo stop por ignición OFF
-    if (previousState === MotionState.IDLE && newState === MotionState.STOPPED) {
+    if (
+      previousState === MotionState.IDLE &&
+      newState === MotionState.STOPPED
+    ) {
       if (updatedState.currentStopId) {
         actions.endStop = true;
       }
@@ -566,7 +575,10 @@ export class StateMachineService {
     }
 
     // STOPPED → IDLE: Finalizar stop de ignición e iniciar stop de IDLE
-    if (previousState === MotionState.STOPPED && newState === MotionState.IDLE) {
+    if (
+      previousState === MotionState.STOPPED &&
+      newState === MotionState.IDLE
+    ) {
       if (updatedState.currentStopId) {
         actions.endStop = true;
       }
@@ -586,11 +598,13 @@ export class StateMachineService {
       updatedState.currentTripId &&
       updatedState.stateStartTime
     ) {
-      const idleDuration = (updatedState.lastTimestamp - updatedState.stateStartTime) / 1000;
+      const idleDuration =
+        (updatedState.lastTimestamp - updatedState.stateStartTime) / 1000;
 
       if (idleDuration >= this.thresholds.maxIdleDuration) {
         const tripDuration =
-          (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) / 1000;
+          (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) /
+          1000;
         const tripDistance = updatedState.tripDistance || 0;
 
         // Validar si el trip cumple con los mínimos para ser guardado
@@ -613,10 +627,11 @@ export class StateMachineService {
           );
         }
 
-        // También cerrar el stop activo si existe
-        if (updatedState.currentStopId) {
-          actions.endStop = true;
-        }
+        // NO cerrar el stop aquí - el stop se cerrará naturalmente cuando:
+        // 1. El vehículo vuelva a moverse (IDLE → MOVING)
+        // 2. La ignición se apague (IDLE → STOPPED)
+        // 3. El orphan cleanup lo cierre si queda huérfano por mucho tiempo
+        // Esto evita stops con duración artificial de exactamente maxIdleDuration
       }
     }
 
@@ -636,7 +651,8 @@ export class StateMachineService {
     currentState: IDeviceMotionState,
   ): IStateTransitionResult {
     // Calcular duración del gap
-    const gapDuration = (position.timestamp - currentState.lastTimestamp) / 1000;
+    const gapDuration =
+      (position.timestamp - currentState.lastTimestamp) / 1000;
 
     // Calcular duración del stop actual (si existe)
     const stopDuration =
@@ -645,7 +661,8 @@ export class StateMachineService {
         : 0;
 
     // Determinar si es un gap "nocturno" (muy largo, típicamente tracker apagado)
-    const isOvernightGap = gapDuration >= this.thresholds.maxOvernightGapDuration;
+    const isOvernightGap =
+      gapDuration >= this.thresholds.maxOvernightGapDuration;
 
     // Determinar si debemos cerrar el trip
     // Cerrarlo si:
@@ -696,20 +713,20 @@ export class StateMachineService {
       if (isOvernightGap && stopDuration < this.thresholds.minStopDuration) {
         this.logger.log(
           `Closing trip for device ${position.deviceId} due to overnight gap: ` +
-          `${Math.round(gapDuration)}s gap (>= ${this.thresholds.maxOvernightGapDuration}s threshold), ` +
-          `stop was only ${Math.round(stopDuration)}s but gap forces closure`,
+            `${Math.round(gapDuration)}s gap (>= ${this.thresholds.maxOvernightGapDuration}s threshold), ` +
+            `stop was only ${Math.round(stopDuration)}s but gap forces closure`,
         );
       } else {
         this.logger.log(
           `Closing trip for device ${position.deviceId} after ${Math.round(gapDuration)}s gap: ` +
-          `stop was ${Math.round(stopDuration)}s (>= ${this.thresholds.minStopDuration}s threshold)`,
+            `stop was ${Math.round(stopDuration)}s (>= ${this.thresholds.minStopDuration}s threshold)`,
         );
       }
     } else if (currentState.currentTripId && !shouldDiscardTrip) {
       this.logger.debug(
         `Keeping trip open for device ${position.deviceId} after ${Math.round(gapDuration)}s gap: ` +
-        `stop was ${Math.round(stopDuration)}s (< ${this.thresholds.minStopDuration}s threshold), ` +
-        `gap < ${this.thresholds.maxOvernightGapDuration}s overnight threshold`,
+          `stop was ${Math.round(stopDuration)}s (< ${this.thresholds.minStopDuration}s threshold), ` +
+          `gap < ${this.thresholds.maxOvernightGapDuration}s overnight threshold`,
       );
     }
 
@@ -837,13 +854,19 @@ export class StateMachineService {
     previousState: MotionState,
     newState: MotionState,
   ): DetectionReason {
-    if (previousState === MotionState.STOPPED && newState === MotionState.MOVING) {
+    if (
+      previousState === MotionState.STOPPED &&
+      newState === MotionState.MOVING
+    ) {
       return position.ignition
         ? DetectionReason.IGNITION_ON
         : DetectionReason.MOTION_DETECTED;
     }
 
-    if (previousState === MotionState.MOVING && newState === MotionState.STOPPED) {
+    if (
+      previousState === MotionState.MOVING &&
+      newState === MotionState.STOPPED
+    ) {
       return !position.ignition
         ? DetectionReason.IGNITION_OFF
         : DetectionReason.MOTION_STOPPED;

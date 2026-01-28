@@ -113,10 +113,12 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
             duration: duration > 0 ? duration : 0,
             metadata: {
               ...(trip.metadata || {}),
+              closureType: 'timeout_cleanup',
               closedBy: 'orphan_cleanup',
               cleanupReason: `no_update_${this.ORPHAN_TIMEOUT_HOURS}h`,
               originalUpdatedAt: trip.updated_at.toISOString(),
               cleanupTimestamp: new Date().toISOString(),
+              retrospectiveEnd: true,
             },
           });
 
@@ -173,9 +175,12 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
             duration: duration > 0 ? duration : 0,
             metadata: {
               ...(stop.metadata || {}),
+              closureType: 'timeout_cleanup',
               closedBy: 'orphan_cleanup',
               cleanupReason: `no_update_${this.ORPHAN_TIMEOUT_HOURS}h`,
               cleanupTimestamp: new Date().toISOString(),
+              retrospectiveEnd: true,
+              originalUpdatedAt: stop.updated_at.toISOString(),
             },
           });
 
