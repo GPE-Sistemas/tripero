@@ -23,13 +23,15 @@ export class ReportsService {
    * GET /api/reports/trips
    */
   async getTrips(query: QueryReportsDto): Promise<TripResponseDto[]> {
-    const { deviceId, from, to, tenantId, clientId, fleetId, metadata } = query;
+    const { deviceId, from, to, tenantId, clientId, fleetId, metadata, limit } =
+      query;
     const fromDate = new Date(from);
     const toDate = new Date(to);
 
     this.logger.debug(
       `Getting trips: deviceId=${deviceId?.join(',') || 'all'}, from=${from}, to=${to}, ` +
-        `tenantId=${tenantId || 'none'}, clientId=${clientId || 'none'}, fleetId=${fleetId || 'none'}`,
+        `tenantId=${tenantId || 'none'}, clientId=${clientId || 'none'}, fleetId=${fleetId || 'none'}, ` +
+        `limit=${limit || 'none'}`,
     );
 
     let trips: Trip[];
@@ -42,7 +44,13 @@ export class ReportsService {
         deviceId,
         fromDate,
         toDate,
-        { tenantId, clientId, fleetId, metadata },
+        {
+          tenantId,
+          clientId,
+          fleetId,
+          metadata,
+        },
+        limit,
       );
     } else {
       // Usar métodos simples del repositorio si no hay filtros de metadata
@@ -55,6 +63,14 @@ export class ReportsService {
         trips = allTrips.flat();
       } else {
         trips = await this.tripRepository.findByTimeRange(fromDate, toDate);
+      }
+
+      // Ordenar por fecha de inicio DESC y aplicar limit si está presente
+      if (trips.length > 0) {
+        trips.sort((a, b) => b.start_time.getTime() - a.start_time.getTime());
+        if (limit && limit > 0) {
+          trips = trips.slice(0, limit);
+        }
       }
     }
 
@@ -83,12 +99,12 @@ export class ReportsService {
     const hasMetadataFilters = tenantId || clientId || fleetId || metadata;
 
     if (hasMetadataFilters) {
-      stops = await this.findStopsWithMetadata(
-        deviceId,
-        fromDate,
-        toDate,
-        { tenantId, clientId, fleetId, metadata },
-      );
+      stops = await this.findStopsWithMetadata(deviceId, fromDate, toDate, {
+        tenantId,
+        clientId,
+        fleetId,
+        metadata,
+      });
     } else {
       // Usar métodos simples del repositorio si no hay filtros de metadata
       if (deviceId && deviceId.length > 0) {
@@ -122,6 +138,7 @@ export class ReportsService {
       fleetId?: string;
       metadata?: Record<string, any>;
     },
+    limit?: number,
   ): Promise<Trip[]> {
     const { tenantId, clientId, fleetId, metadata } = filters;
 
@@ -170,6 +187,11 @@ export class ReportsService {
     }
 
     queryBuilder.orderBy('trip.start_time', 'DESC');
+
+    // Aplicar limit si está presente
+    if (limit && limit > 0) {
+      queryBuilder.limit(limit);
+    }
 
     return await queryBuilder.getMany();
   }

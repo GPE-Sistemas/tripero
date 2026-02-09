@@ -1,5 +1,12 @@
-import { IsString, IsOptional, IsDateString, IsArray } from 'class-validator';
-import { Transform } from 'class-transformer';
+import {
+  IsString,
+  IsOptional,
+  IsDateString,
+  IsArray,
+  IsInt,
+  Min,
+} from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 /**
  * DTO para query params de reportes
@@ -97,4 +104,15 @@ export class QueryReportsDto {
     return value;
   })
   metadata?: Record<string, any>;
+
+  /**
+   * Límite de resultados
+   * Trae los últimos x registros ordenados por fecha de inicio DESC
+   * Ejemplo: ?limit=100
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
 }
