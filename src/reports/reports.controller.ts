@@ -21,10 +21,12 @@ export class ReportsController {
    * - groupId: string | string[] (comma-separated, opcional) - ID del/los grupo(s)
    * - from: ISO 8601 date-time - Fecha inicio
    * - to: ISO 8601 date-time - Fecha fin
+   * - limit: number (opcional) - Límite de resultados (trae los últimos x trips)
    *
    * Ejemplos:
    * GET /api/reports/trips?deviceId=TEST-001&from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z
    * GET /api/reports/trips?deviceId=TEST-001,TEST-002&from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z
+   * GET /api/reports/trips?deviceId=TEST-001&from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&limit=10
    */
   @Get('trips')
   async getTrips(
