@@ -40,6 +40,7 @@ export interface IStateTransitionResult {
     distance: number;
     maxSpeed: number;
     stopsCount: number;
+    confirmed?: boolean; // true si el trip fue publicado a BD
   };
 
   // Información de overnight gap (para tracking de problemas de energía)
@@ -108,6 +109,7 @@ export class StateMachineService {
         distance: updatedState.tripDistance || 0,
         maxSpeed: updatedState.tripMaxSpeed || 0,
         stopsCount: updatedState.tripStopsCount || 0,
+        confirmed: updatedState.tripConfirmed || false,
       };
     }
 
@@ -120,6 +122,7 @@ export class StateMachineService {
       updatedState.tripDistance = 0;
       updatedState.tripMaxSpeed = position.speed;
       updatedState.tripStopsCount = 0;
+      updatedState.tripConfirmed = false; // Trip no confirmado hasta cumplir mínimos
       // Inicializar contexto para detección de ruido GPS
       updatedState.tripMaxDistanceFromOrigin = 0;
       updatedState.tripBoundingBox = {

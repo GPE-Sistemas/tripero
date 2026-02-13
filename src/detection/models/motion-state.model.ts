@@ -51,6 +51,7 @@ export interface IDeviceMotionState {
   tripDistance?: number; // metros acumulados
   tripMaxSpeed?: number; // km/h
   tripStopsCount?: number;
+  tripConfirmed?: boolean; // true si el trip ya fue publicado a BD (cumplió mínimos)
   tripMetadata?: Record<string, any>; // Metadata del trip (se propaga del position event)
 
   // === Contexto para detección de ruido GPS ===
