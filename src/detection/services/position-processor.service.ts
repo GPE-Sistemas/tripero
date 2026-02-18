@@ -78,9 +78,7 @@ export class PositionProcessorService {
       );
 
       if (isThrottled) {
-        this.logger.debug(
-          `Position throttled for device ${position.deviceId}`,
-        );
+        this.logger.debug(`Position throttled for device ${position.deviceId}`);
         return;
       }
 
@@ -161,7 +159,7 @@ export class PositionProcessorService {
       // IMPORTANTE: Finalizar trip ANTES de iniciar nuevo para evitar race conditions
       // Usamos previousTrip cuando está disponible (auto-close) para tener los datos correctos
 
-      // Descartar trip (publicar evento para eliminar de BD)
+      // Descartar trip
       if (actions.discardTrip) {
         // Obtener datos del trip a descartar
         // Si startTrip también es true, los datos están en previousTrip (ya inicializamos nuevo)
@@ -173,31 +171,46 @@ export class PositionProcessorService {
         };
 
         if (tripData.tripId) {
-          const tripDuration = (updatedState.lastTimestamp - tripData.startTime) / 1000;
+          const tripDuration =
+            (updatedState.lastTimestamp - tripData.startTime) / 1000;
           const tripDistance = tripData.distance;
 
-          // Determinar razón del descarte
-          let reason: ITripDiscardedEvent['reason'] = 'below_minimums';
-          if (tripDuration < 60) {
-            reason = 'too_short';
-          } else if (tripDistance < 100) {
-            reason = 'too_small_distance';
+          // Solo publicar evento si el trip fue confirmado (ya está en BD)
+          // Si nunca fue confirmado, simplemente limpiamos el estado sin notificar
+          const wasConfirmed = result.previousTrip
+            ? result.previousTrip.confirmed
+            : updatedState.tripConfirmed;
+
+          if (wasConfirmed) {
+            // Determinar razón del descarte
+            let reason: ITripDiscardedEvent['reason'] = 'below_minimums';
+            if (tripDuration < 60) {
+              reason = 'too_short';
+            } else if (tripDistance < 100) {
+              reason = 'too_small_distance';
+            }
+
+            const event: ITripDiscardedEvent = {
+              tripId: tripData.tripId,
+              deviceId: position.deviceId,
+              reason,
+              duration: Math.round(tripDuration),
+              distance: Math.round(tripDistance),
+            };
+
+            await this.eventPublisher.publishTripDiscarded(event);
+
+            this.logger.log(
+              `Discarding trip ${tripData.tripId} for device ${position.deviceId}: ` +
+                `${reason} (duration=${Math.round(tripDuration)}s, distance=${Math.round(tripDistance)}m)`,
+            );
+          } else {
+            // Trip no confirmado, descarte silencioso
+            this.logger.debug(
+              `Silently discarding unconfirmed trip ${tripData.tripId} for device ${position.deviceId}: ` +
+                `duration=${Math.round(tripDuration)}s, distance=${Math.round(tripDistance)}m`,
+            );
           }
-
-          const event: ITripDiscardedEvent = {
-            tripId: tripData.tripId,
-            deviceId: position.deviceId,
-            reason,
-            duration: Math.round(tripDuration),
-            distance: Math.round(tripDistance),
-          };
-
-          await this.eventPublisher.publishTripDiscarded(event);
-
-          this.logger.log(
-            `Discarding trip ${tripData.tripId} for device ${position.deviceId}: ` +
-              `${reason} (duration=${Math.round(tripDuration)}s, distance=${Math.round(tripDistance)}m)`,
-          );
         }
 
         // Solo limpiar estado si NO vamos a iniciar uno nuevo inmediatamente
@@ -211,6 +224,7 @@ export class PositionProcessorService {
           updatedState.tripDistance = undefined;
           updatedState.tripMaxSpeed = undefined;
           updatedState.tripStopsCount = undefined;
+          updatedState.tripConfirmed = undefined;
           updatedState.tripMetadata = undefined;
 
           await this.deviceState.saveDeviceState(updatedState);
@@ -231,7 +245,8 @@ export class PositionProcessorService {
           stopsCount: updatedState.tripStopsCount || 0,
         };
 
-        const tripDuration = (updatedState.lastTimestamp - tripData.startTime) / 1000;
+        const tripDuration =
+          (updatedState.lastTimestamp - tripData.startTime) / 1000;
 
         // CRÍTICO: Calcular distancia del trip desde el odómetro global del TrackerState
         // Esto incluye TODA la distancia recorrida durante el trip, incluso durante stops
@@ -239,10 +254,11 @@ export class PositionProcessorService {
         // pero el TrackerState acumula SIEMPRE, resolviendo el bug de pérdida de distancia
         let tripDistance = tripData.distance; // Fallback al valor anterior
         if (trackerState && trackerState.tripOdometerStart !== undefined) {
-          tripDistance = trackerState.totalOdometer - trackerState.tripOdometerStart;
+          tripDistance =
+            trackerState.totalOdometer - trackerState.tripOdometerStart;
           this.logger.log(
             `Trip ${tripData.tripId} distance: state-machine=${tripData.distance}m, ` +
-            `odometer-based=${tripDistance}m (diff=${tripDistance - tripData.distance}m)`,
+              `odometer-based=${tripDistance}m (diff=${tripDistance - tripData.distance}m)`,
           );
         } else {
           this.logger.warn(
@@ -269,7 +285,10 @@ export class PositionProcessorService {
             coordinates: [updatedState.lastLon, updatedState.lastLat],
           },
           detectionMethod: position.ignition ? 'ignition' : 'motion',
-          currentState: (updatedState.currentMotionState || 'STOPPED') as 'STOPPED' | 'IDLE' | 'MOVING',
+          currentState: (updatedState.currentMotionState || 'STOPPED') as
+            | 'STOPPED'
+            | 'IDLE'
+            | 'MOVING',
           odometer: Math.round(displayOdometer),
           metadata: {
             ...updatedState.tripMetadata,
@@ -298,6 +317,7 @@ export class PositionProcessorService {
           updatedState.tripDistance = undefined;
           updatedState.tripMaxSpeed = undefined;
           updatedState.tripStopsCount = undefined;
+          updatedState.tripConfirmed = undefined;
           updatedState.tripMetadata = undefined;
 
           await this.deviceState.saveDeviceState(updatedState);
@@ -309,32 +329,61 @@ export class PositionProcessorService {
         // Guardar metadata del position en el estado para cuando se complete el trip
         updatedState.tripMetadata = position.metadata;
 
-        const event: ITripStartedEvent = {
-          tripId: updatedState.currentTripId,
-          deviceId: position.deviceId,
-          startTime: new Date(updatedState.tripStartTime).toISOString(),
-          startLocation: {
-            type: 'Point',
-            coordinates: [
-              updatedState.tripStartLon,
-              updatedState.tripStartLat,
-            ],
-          },
-          detectionMethod: position.ignition ? 'ignition' : 'motion',
-          currentState: 'MOVING', // Siempre MOVING al iniciar trip
-          odometer: Math.round(displayOdometer),
-          metadata: position.metadata,
-        };
+        // NO publicar inmediatamente - esperar a que el trip cumpla mínimos
+        // El trip se publicará en la siguiente posición si cumple >= 100m o >= 3 posiciones
+        this.logger.debug(
+          `Trip ${updatedState.currentTripId} created for device ${position.deviceId}, waiting for confirmation`,
+        );
 
-        await this.eventPublisher.publishTripStarted(event);
-
-        // Notificar al TrackerStateService
+        // Notificar al TrackerStateService (esto no persiste en BD, solo trackea odómetro)
         await this.trackerState.onTripStarted(
           position.deviceId,
           updatedState.currentTripId,
           updatedState.tripStartLat,
           updatedState.tripStartLon,
         );
+      }
+
+      // Verificar si un trip existente debe ser confirmado (publicado a BD)
+      if (
+        updatedState.currentTripId &&
+        !updatedState.tripConfirmed &&
+        !actions.startTrip // No verificar en la misma posición que inicia
+      ) {
+        const tripDistance = updatedState.tripDistance || 0;
+        const tripPositionCount = updatedState.tripPositionCount || 0;
+
+        // Confirmar si cumple >= 100m O >= 3 posiciones
+        if (tripDistance >= 100 || tripPositionCount >= 3) {
+          updatedState.tripConfirmed = true;
+
+          const event: ITripStartedEvent = {
+            tripId: updatedState.currentTripId,
+            deviceId: position.deviceId,
+            startTime: new Date(updatedState.tripStartTime).toISOString(),
+            startLocation: {
+              type: 'Point',
+              coordinates: [
+                updatedState.tripStartLon,
+                updatedState.tripStartLat,
+              ],
+            },
+            detectionMethod: position.ignition ? 'ignition' : 'motion',
+            currentState: 'MOVING',
+            odometer: Math.round(displayOdometer),
+            metadata: updatedState.tripMetadata || position.metadata,
+          };
+
+          await this.eventPublisher.publishTripStarted(event);
+
+          this.logger.log(
+            `Trip ${updatedState.currentTripId} confirmed for device ${position.deviceId}: ` +
+              `${Math.round(tripDistance)}m, ${tripPositionCount} positions`,
+          );
+
+          // Guardar estado actualizado con tripConfirmed = true
+          await this.deviceState.saveDeviceState(updatedState);
+        }
       }
 
       // Iniciar stop
@@ -398,13 +447,13 @@ export class PositionProcessorService {
           duration: Math.round(stopDuration),
           location: {
             type: 'Point',
-            coordinates: [
-              updatedState.stopStartLon,
-              updatedState.stopStartLat,
-            ],
+            coordinates: [updatedState.stopStartLon, updatedState.stopStartLat],
           },
           reason: updatedState.stopReason || 'no_movement',
-          currentState: (updatedState.currentMotionState || 'MOVING') as 'STOPPED' | 'IDLE' | 'MOVING',
+          currentState: (updatedState.currentMotionState || 'MOVING') as
+            | 'STOPPED'
+            | 'IDLE'
+            | 'MOVING',
           odometer: Math.round(displayOdometer),
           metadata: {
             ...updatedState.stopMetadata,
@@ -462,7 +511,8 @@ export class PositionProcessorService {
       const deviceState = result.updatedState;
 
       // Calcular odómetro con offset
-      const displayOdometer = trackerState.totalOdometer + (trackerState.odometerOffset || 0);
+      const displayOdometer =
+        trackerState.totalOdometer + (trackerState.odometerOffset || 0);
       const totalKm = Math.round(displayOdometer / 1000);
 
       // Calcular edad de la última posición
@@ -478,17 +528,22 @@ export class PositionProcessorService {
       // Agregar info del trip actual si existe
       if (deviceState.currentTripId && deviceState.tripDistance !== undefined) {
         odometerInfo.currentTrip = Math.round(deviceState.tripDistance);
-        odometerInfo.currentTripKm = Math.round(deviceState.tripDistance / 1000);
+        odometerInfo.currentTripKm = Math.round(
+          deviceState.tripDistance / 1000,
+        );
       }
 
       // Construir información del trip actual (si existe)
       let currentTripInfo: any = undefined;
       if (deviceState.currentTripId && deviceState.tripStartTime) {
-        const tripDuration = Math.floor((now - deviceState.tripStartTime) / 1000);
+        const tripDuration = Math.floor(
+          (now - deviceState.tripStartTime) / 1000,
+        );
         const tripDistance = deviceState.tripDistance || 0;
-        const avgSpeed = tripDuration > 0
-          ? Math.round((tripDistance / tripDuration) * 3.6)
-          : 0;
+        const avgSpeed =
+          tripDuration > 0
+            ? Math.round((tripDistance / tripDuration) * 3.6)
+            : 0;
 
         currentTripInfo = {
           tripId: deviceState.currentTripId,
@@ -498,7 +553,8 @@ export class PositionProcessorService {
           avgSpeed,
           maxSpeed: deviceState.tripMaxSpeed || 0,
           odometerAtStart: Math.round(
-            (trackerState.tripOdometerStart || 0) + (trackerState.odometerOffset || 0)
+            (trackerState.tripOdometerStart || 0) +
+              (trackerState.odometerOffset || 0),
           ),
         };
       }
@@ -544,7 +600,10 @@ export class PositionProcessorService {
   /**
    * Calcula velocidad promedio
    */
-  private calculateAvgSpeed(distanceMeters: number, durationSeconds: number): number {
+  private calculateAvgSpeed(
+    distanceMeters: number,
+    durationSeconds: number,
+  ): number {
     if (durationSeconds === 0) return 0;
     // (metros / segundos) * 3.6 = km/h
     return Math.round((distanceMeters / durationSeconds) * 3.6);
@@ -562,10 +621,12 @@ export class PositionProcessorService {
       const lastUpdate = this.lastTripUpdateTime.get(tripId);
 
       // Solo actualizar si pasaron más de 60 segundos desde el último update
-      if (!lastUpdate || (now - lastUpdate) > this.TRIP_UPDATE_THROTTLE_MS) {
+      if (!lastUpdate || now - lastUpdate > this.TRIP_UPDATE_THROTTLE_MS) {
         await this.tripRepository.touchTrip(tripId);
         this.lastTripUpdateTime.set(tripId, now);
-        this.logger.debug(`Updated trip ${tripId} timestamp (last update was ${lastUpdate ? Math.round((now - lastUpdate) / 1000) : 'never'}s ago)`);
+        this.logger.debug(
+          `Updated trip ${tripId} timestamp (last update was ${lastUpdate ? Math.round((now - lastUpdate) / 1000) : 'never'}s ago)`,
+        );
       }
     } catch (error) {
       // No lanzar error, solo loguearlo - no queremos que falle el procesamiento de posiciones
