@@ -1,8 +1,16 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { TripRepository } from '../../database/repositories/trip.repository';
 import { StopRepository } from '../../database/repositories/stop.repository';
 import { DeviceStateService } from './device-state.service';
+import { TrackerStateService } from './tracker-state.service';
+import { TripQualityAnalyzerService } from './trip-quality-analyzer.service';
 import { DEFAULT_THRESHOLDS } from '../models';
+import { Trip } from '../../database/entities/trip.entity';
 
 /**
  * Servicio encargado de limpiar trips y stops huérfanos
@@ -33,6 +41,8 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
     private readonly tripRepository: TripRepository,
     private readonly stopRepository: StopRepository,
     private readonly deviceStateService: DeviceStateService,
+    private readonly trackerStateService: TrackerStateService,
+    private readonly tripQualityAnalyzer: TripQualityAnalyzerService,
   ) {}
 
   async onModuleInit() {
@@ -107,10 +117,14 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
             (trip.updated_at.getTime() - trip.start_time.getTime()) / 1000,
           );
 
+          const { tripData, metadataExtra } =
+            await this.calcularMetricasHuerfano(trip, duration);
+
           await this.tripRepository.update(trip.id, {
             end_time: trip.updated_at,
             is_active: false,
             duration: duration > 0 ? duration : 0,
+            ...tripData,
             metadata: {
               ...(trip.metadata || {}),
               closureType: 'timeout_cleanup',
@@ -119,13 +133,15 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
               originalUpdatedAt: trip.updated_at.toISOString(),
               cleanupTimestamp: new Date().toISOString(),
               retrospectiveEnd: true,
+              ...metadataExtra,
             },
           });
 
           this.logger.log(
             `Closed orphan trip ${trip.id} (device: ${trip.id_activo}, ` +
               `started: ${trip.start_time.toISOString()}, ` +
-              `last update: ${trip.updated_at.toISOString()})`,
+              `last update: ${trip.updated_at.toISOString()}, ` +
+              `metrics: ${metadataExtra.metricsSource})`,
           );
 
           closedCount++;
@@ -140,6 +156,147 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error('Error finding orphan trips', error.stack);
       return 0;
+    }
+  }
+
+  /**
+   * Calcula métricas para un trip huérfano usando el TrackerState disponible.
+   *
+   * Retorna tripData (campos para IUpdateTripData) y metadataExtra (campos de debug para metadata).
+   * Nivel A: estado completo (currentTripId coincide y tripOdometerStart disponible)
+   * Nivel B: estado parcial (solo coordenadas de fin disponibles)
+   * Nivel C: sin TrackerState (sin métricas)
+   */
+  private async calcularMetricasHuerfano(
+    trip: Trip,
+    durationSeconds: number,
+  ): Promise<{
+    tripData: Record<string, unknown>;
+    metadataExtra: Record<string, unknown>;
+  }> {
+    try {
+      const trackerState = await this.trackerStateService.getState(
+        trip.id_activo,
+      );
+
+      if (!trackerState) {
+        return {
+          tripData: {},
+          metadataExtra: { metricsSource: 'not_available' },
+        };
+      }
+
+      const endLat = trackerState.lastLatitude;
+      const endLon = trackerState.lastLongitude;
+
+      const hasFullState =
+        trackerState.currentTripId === trip.id &&
+        trackerState.tripOdometerStart !== undefined;
+
+      if (hasFullState) {
+        const distance = Math.max(
+          0,
+          trackerState.totalOdometer - trackerState.tripOdometerStart!,
+        );
+        const avgSpeed =
+          durationSeconds > 0
+            ? Math.round((distance / durationSeconds) * 3.6)
+            : 0;
+        const maxSpeed = trackerState.tripMaxSpeed ?? 0;
+
+        const startLat = trip.start_lat ?? 0;
+        const startLon = trip.start_lon ?? 0;
+        const endLatVal = endLat ?? startLat;
+        const endLonVal = endLon ?? startLon;
+
+        const qualityAnalysis = this.tripQualityAnalyzer.analyzeTripQuality(
+          startLat,
+          startLon,
+          endLatVal,
+          endLonVal,
+          distance,
+          0,
+          0,
+          avgSpeed,
+          0,
+        );
+
+        return {
+          tripData: {
+            distance,
+            avg_speed: avgSpeed,
+            max_speed: maxSpeed,
+            ...(endLat !== undefined && endLon !== undefined
+              ? { end_lat: endLat, end_lon: endLon }
+              : {}),
+            quality_flag: qualityAnalysis.qualityFlag,
+            quality_metadata: {
+              tripRatio: qualityAnalysis.tripRatio,
+              linearDistance: qualityAnalysis.linearDistance,
+              avgSpeed: qualityAnalysis.avgSpeed,
+              message: qualityAnalysis.message,
+              hadGpsNoise: qualityAnalysis.hadGpsNoise,
+            },
+            distance_linear: qualityAnalysis.linearDistance,
+            route_linear_ratio: qualityAnalysis.tripRatio,
+          },
+          metadataExtra: {
+            metricsSource: 'tracker_state_full',
+            trackerTotalOdometer: trackerState.totalOdometer,
+            trackerTripOdometerStart: trackerState.tripOdometerStart,
+          },
+        };
+      }
+
+      // Nivel B: estado parcial — solo coordenadas de fin
+      const startLat = trip.start_lat ?? 0;
+      const startLon = trip.start_lon ?? 0;
+      const endLatVal = endLat ?? startLat;
+      const endLonVal = endLon ?? startLon;
+
+      const qualityAnalysis = this.tripQualityAnalyzer.analyzeTripQuality(
+        startLat,
+        startLon,
+        endLatVal,
+        endLonVal,
+        0,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      return {
+        tripData: {
+          ...(endLat !== undefined && endLon !== undefined
+            ? { end_lat: endLat, end_lon: endLon }
+            : {}),
+          quality_flag: qualityAnalysis.qualityFlag,
+          quality_metadata: {
+            tripRatio: qualityAnalysis.tripRatio,
+            linearDistance: qualityAnalysis.linearDistance,
+            message: qualityAnalysis.message,
+          },
+          distance_linear: qualityAnalysis.linearDistance,
+          route_linear_ratio: qualityAnalysis.tripRatio,
+        },
+        metadataExtra: {
+          metricsSource: 'tracker_state_partial',
+          trackerCurrentTripId: trackerState.currentTripId,
+          hasTripOdometerStart: trackerState.tripOdometerStart !== undefined,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error calculando métricas para trip huérfano ${trip.id}: ${error.message}`,
+      );
+      return {
+        tripData: {},
+        metadataExtra: {
+          metricsSource: 'not_available',
+          metricsError: error.message,
+        },
+      };
     }
   }
 
@@ -216,7 +373,8 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
       }
 
       let cleanedCount = 0;
-      const cutoffTime = Date.now() - this.ORPHAN_TIMEOUT_HOURS * 60 * 60 * 1000;
+      const cutoffTime =
+        Date.now() - this.ORPHAN_TIMEOUT_HOURS * 60 * 60 * 1000;
 
       for (const deviceId of activeDevices) {
         try {
