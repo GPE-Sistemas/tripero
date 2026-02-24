@@ -46,6 +46,10 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    if (process.env.BACKFILL_ORPHAN_METRICS === 'true') {
+      await this.runBackfill();
+    }
+
     // Ejecutar cleanup inicial
     await this.runCleanup();
 
@@ -66,6 +70,69 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
+    }
+  }
+
+  /**
+   * Backfill de métricas para trips huérfanos ya cerrados sin distance/speed.
+   * Activar con BACKFILL_ORPHAN_METRICS=true en el despliegue.
+   */
+  async runBackfill(): Promise<void> {
+    this.logger.log('Starting backfill of orphan trip metrics...');
+    const startTime = Date.now();
+
+    try {
+      const trips = await this.tripRepository.findTripsForBackfill();
+
+      if (trips.length === 0) {
+        this.logger.log('Backfill: no trips to process');
+        return;
+      }
+
+      this.logger.log(`Backfill: processing ${trips.length} trips`);
+
+      let updated = 0;
+      let skipped = 0;
+
+      for (const trip of trips) {
+        try {
+          const duration =
+            trip.duration ??
+            Math.floor(
+              (trip.updated_at.getTime() - trip.start_time.getTime()) / 1000,
+            );
+
+          const { tripData, metadataExtra } =
+            await this.calcularMetricasHuerfano(trip, duration);
+
+          if (metadataExtra.metricsSource === 'not_available') {
+            skipped++;
+            continue;
+          }
+
+          await this.tripRepository.update(trip.id, {
+            ...tripData,
+            metadata: {
+              ...(trip.metadata || {}),
+              ...metadataExtra,
+              backfilledAt: new Date().toISOString(),
+            },
+          });
+
+          updated++;
+        } catch (error) {
+          this.logger.error(
+            `Backfill error on trip ${trip.id}: ${error.message}`,
+          );
+        }
+      }
+
+      const elapsed = Date.now() - startTime;
+      this.logger.log(
+        `Backfill completed in ${elapsed}ms: ${updated} updated, ${skipped} skipped (no tracker state)`,
+      );
+    } catch (error) {
+      this.logger.error('Backfill failed', error.stack);
     }
   }
 

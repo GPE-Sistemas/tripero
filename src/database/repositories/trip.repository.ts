@@ -217,17 +217,27 @@ export class TripRepository {
     };
   }
 
+  async findTripsForBackfill(): Promise<Trip[]> {
+    return await this.tripRepo
+      .createQueryBuilder('trip')
+      .where('trip.is_active = false')
+      .andWhere('(trip.distance = 0 OR trip.distance IS NULL)')
+      .andWhere(`trip.metadata->>'closedBy' = 'orphan_cleanup'`)
+      .orderBy('trip.start_time', 'DESC')
+      .getMany();
+  }
+
   async findOrphanTrips(hoursWithoutUpdate: number): Promise<Trip[]> {
     const cutoffTime = new Date();
     cutoffTime.setHours(cutoffTime.getHours() - hoursWithoutUpdate);
 
-    return await this.tripRepo.find({
-      where: {
-        is_active: true,
-      },
-    }).then(trips =>
-      trips.filter(trip => trip.updated_at < cutoffTime)
-    );
+    return await this.tripRepo
+      .find({
+        where: {
+          is_active: true,
+        },
+      })
+      .then((trips) => trips.filter((trip) => trip.updated_at < cutoffTime));
   }
 
   /**
