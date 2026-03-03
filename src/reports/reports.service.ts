@@ -167,7 +167,7 @@ export class ReportsService {
     }
 
     if (clientId) {
-      queryBuilder.andWhere("trip.metadata->>'client_id' = :clientId", {
+      queryBuilder.andWhere("trip.metadata->>'idCliente' = :clientId", {
         clientId,
       });
     }
