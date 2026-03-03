@@ -13,7 +13,6 @@ import { DeviceStateService } from './device-state.service';
 import { EventPublisherService } from './event-publisher.service';
 import { TrackerStateService } from './tracker-state.service';
 import { TripRepository } from '../../database/repositories/trip.repository';
-import { MotionState } from '../models';
 
 /**
  * Servicio principal de procesamiento de posiciones GPS
@@ -266,6 +265,15 @@ export class PositionProcessorService {
           );
         }
 
+        // Si hay un stop siendo cerrado simultáneamente (STOPPED→MOVING), el fin del trip
+        // es donde el vehículo se detuvo, no la posición que disparó MOVING
+        const endLat =
+          (actions.endStop && updatedState.stopStartLat) ||
+          updatedState.lastLat;
+        const endLon =
+          (actions.endStop && updatedState.stopStartLon) ||
+          updatedState.lastLon;
+
         const event: ITripCompletedEvent = {
           tripId: tripData.tripId,
           deviceId: position.deviceId,
@@ -282,7 +290,7 @@ export class PositionProcessorService {
           },
           endLocation: {
             type: 'Point',
-            coordinates: [updatedState.lastLon, updatedState.lastLat],
+            coordinates: [endLon, endLat],
           },
           detectionMethod: position.ignition ? 'ignition' : 'motion',
           currentState: (updatedState.currentMotionState || 'STOPPED') as
