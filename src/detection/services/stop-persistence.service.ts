@@ -95,6 +95,15 @@ export class StopPersistenceService implements OnModuleInit {
     try {
       const event: IStopStartedEvent = JSON.parse(message);
 
+      // Verificar si el stop ya existe (puede ocurrir al reiniciar el servicio)
+      const existing = await this.stopRepository.findById(event.stopId);
+      if (existing) {
+        this.logger.warn(
+          `Stop ${event.stopId} ya existe en BD, ignorando evento duplicado`,
+        );
+        return;
+      }
+
       this.logger.debug(
         `Creando stop ${event.stopId} para device ${event.deviceId}`,
       );

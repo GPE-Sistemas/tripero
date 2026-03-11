@@ -105,6 +105,15 @@ export class TripPersistenceService implements OnModuleInit {
     try {
       const event: ITripStartedEvent = JSON.parse(message);
 
+      // Verificar si el trip ya existe (puede ocurrir al reiniciar el servicio)
+      const existing = await this.tripRepository.findById(event.tripId);
+      if (existing) {
+        this.logger.warn(
+          `Trip ${event.tripId} ya existe en BD, ignorando evento duplicado`,
+        );
+        return;
+      }
+
       this.logger.debug(
         `Creando trip ${event.tripId} para device ${event.deviceId}`,
       );
