@@ -57,4 +57,9 @@ export class StopResponseDto {
    * Odómetro al final del stop (metros)
    */
   endOdometer?: number;
+
+  /**
+   * Razón del stop: 'ignition_off' (motor apagado) | 'no_movement' (encendido sin movimiento) | 'parking'
+   */
+  reason?: string;
 }

@@ -302,6 +302,7 @@ export class ReportsService {
       engineHours: undefined, // TODO: si se necesita
       startOdometer: stop.start_odometer ?? undefined,
       endOdometer: stop.end_odometer ?? undefined,
+      reason: stop.reason,
     }));
   }
 }
