@@ -43,6 +43,19 @@ export interface IStateTransitionResult {
     confirmed?: boolean; // true si el trip fue publicado a BD
   };
 
+  // Datos del stop anterior (para cerrar correctamente cuando la misma transición
+  // marca endStop y startStop — p. ej. IDLE↔STOPPED por oscilación de ignición).
+  // Sin este snapshot, el startStop sobrescribe currentStopId/stopStartTime antes
+  // de que position-processor publique stop:completed del stop viejo.
+  previousStop?: {
+    stopId: string;
+    startTime: number;
+    startLat: number;
+    startLon: number;
+    reason?: 'ignition_off' | 'no_movement' | 'parking';
+    metadata?: Record<string, any>;
+  };
+
   // Información de overnight gap (para tracking de problemas de energía)
   overnightGap?: {
     detected: boolean;
@@ -142,6 +155,27 @@ export class StateMachineService {
       };
     }
 
+    // Snapshot del stop anterior ANTES de que startStop lo sobrescriba.
+    // Sin esto, en transiciones IDLE↔STOPPED el stop viejo se pierde (bug histórico:
+    // position-processor leía currentStopId ya sobrescrito y publicaba stop:completed
+    // con duration=0, dejando el stop real huérfano en BD).
+    let previousStop: IStateTransitionResult['previousStop'] = undefined;
+    if (
+      actions.endStop &&
+      actions.startStop &&
+      updatedState.currentStopId &&
+      updatedState.stopStartTime !== undefined
+    ) {
+      previousStop = {
+        stopId: updatedState.currentStopId,
+        startTime: updatedState.stopStartTime,
+        startLat: updatedState.stopStartLat ?? updatedState.lastLat,
+        startLon: updatedState.stopStartLon ?? updatedState.lastLon,
+        reason: updatedState.stopReason,
+        metadata: updatedState.stopMetadata,
+      };
+    }
+
     // Finalizar stop si es necesario
     // NOTA: NO limpiar datos del stop aquí - position-processor lo hará después de publicar el evento
     if (actions.endStop && updatedState.currentStopId) {
@@ -178,6 +212,7 @@ export class StateMachineService {
       actions,
       updatedState,
       previousTrip,
+      previousStop,
     };
   }
 

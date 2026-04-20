@@ -394,7 +394,94 @@ export class PositionProcessorService {
         }
       }
 
-      // Iniciar stop
+      // ORDEN CRÍTICO: Finalizar stop ANTES de iniciar uno nuevo.
+      // En transiciones IDLE↔STOPPED la state-machine marca endStop y startStop
+      // simultáneamente; si se invierte el orden, startStop sobrescribe currentStopId
+      // antes de publicar stop:completed → el stop real queda huérfano y se publica
+      // un stop:completed con duration=0 para el stop nuevo. Ver TRIPERO_AUDIT_REPORT.md.
+
+      // Finalizar stop
+      if (actions.endStop) {
+        // Si hay previousStop, usar esos datos (endStop+startStop simultáneos).
+        // Si no, usar updatedState (sólo endStop, datos aún no sobrescritos).
+        const stopData = result.previousStop
+          ? {
+              stopId: result.previousStop.stopId,
+              startTime: result.previousStop.startTime,
+              startLat: result.previousStop.startLat,
+              startLon: result.previousStop.startLon,
+              reason: result.previousStop.reason,
+              metadata: result.previousStop.metadata,
+            }
+          : {
+              stopId: updatedState.currentStopId,
+              startTime: updatedState.stopStartTime,
+              startLat: updatedState.stopStartLat,
+              startLon: updatedState.stopStartLon,
+              reason: updatedState.stopReason,
+              metadata: updatedState.stopMetadata,
+            };
+
+        if (stopData.stopId && stopData.startTime !== undefined) {
+          const stopDuration =
+            (position.timestamp - stopData.startTime) / 1000;
+
+          const event: IStopCompletedEvent = {
+            stopId: stopData.stopId,
+            tripId: updatedState.currentTripId,
+            deviceId: position.deviceId,
+            startTime: new Date(stopData.startTime).toISOString(),
+            endTime: new Date(position.timestamp).toISOString(),
+            duration: Math.round(stopDuration),
+            location: {
+              type: 'Point',
+              coordinates: [stopData.startLon, stopData.startLat],
+            },
+            reason: stopData.reason || 'no_movement',
+            currentState: (updatedState.currentMotionState || 'MOVING') as
+              | 'STOPPED'
+              | 'IDLE'
+              | 'MOVING',
+            odometer: Math.round(displayOdometer),
+            metadata: {
+              ...stopData.metadata,
+              closureType: 'natural',
+            },
+          };
+
+          await this.eventPublisher.publishStopCompleted(event);
+
+          // Incrementar contador de stops en el trip
+          if (updatedState.currentTripId) {
+            updatedState.tripStopsCount =
+              (updatedState.tripStopsCount || 0) + 1;
+          }
+
+          // Limpiar datos del stop SOLO si no vamos a iniciar uno nuevo inmediatamente.
+          // Si startStop también es true, el bloque siguiente ya sobrescribirá estos campos
+          // con el stopId nuevo generado aquí por el processor.
+          if (!actions.startStop) {
+            updatedState.currentStopId = undefined;
+            updatedState.stopStartTime = undefined;
+            updatedState.stopStartLat = undefined;
+            updatedState.stopStartLon = undefined;
+            updatedState.stopReason = undefined;
+            updatedState.stopMetadata = undefined;
+
+            await this.deviceState.saveDeviceState(updatedState);
+          }
+
+          this.logger.debug(
+            `Stop ${event.stopId} completed for device ${position.deviceId}: ${event.duration}s`,
+          );
+        } else {
+          this.logger.warn(
+            `endStop requested for device ${position.deviceId} but no stop data available`,
+          );
+        }
+      }
+
+      // Iniciar stop (DESPUÉS de finalizar el anterior para evitar race conditions)
       if (actions.startStop) {
         // Generar ID único para el stop
         const stopId = `stop_${position.deviceId}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -438,56 +525,6 @@ export class PositionProcessorService {
 
         this.logger.debug(
           `Stop ${stopId} started for device ${position.deviceId} (reason: ${reason})`,
-        );
-      }
-
-      // Finalizar stop
-      if (actions.endStop && updatedState.currentStopId) {
-        const stopDuration =
-          (position.timestamp - updatedState.stopStartTime) / 1000;
-
-        const event: IStopCompletedEvent = {
-          stopId: updatedState.currentStopId,
-          tripId: updatedState.currentTripId,
-          deviceId: position.deviceId,
-          startTime: new Date(updatedState.stopStartTime).toISOString(),
-          endTime: new Date(position.timestamp).toISOString(),
-          duration: Math.round(stopDuration),
-          location: {
-            type: 'Point',
-            coordinates: [updatedState.stopStartLon, updatedState.stopStartLat],
-          },
-          reason: updatedState.stopReason || 'no_movement',
-          currentState: (updatedState.currentMotionState || 'MOVING') as
-            | 'STOPPED'
-            | 'IDLE'
-            | 'MOVING',
-          odometer: Math.round(displayOdometer),
-          metadata: {
-            ...updatedState.stopMetadata,
-            closureType: 'natural', // Stop cerrado por cambio de estado del vehículo
-          },
-        };
-
-        await this.eventPublisher.publishStopCompleted(event);
-
-        // Incrementar contador de stops en el trip
-        if (updatedState.currentTripId) {
-          updatedState.tripStopsCount = (updatedState.tripStopsCount || 0) + 1;
-        }
-
-        // Limpiar datos del stop
-        updatedState.currentStopId = undefined;
-        updatedState.stopStartTime = undefined;
-        updatedState.stopStartLat = undefined;
-        updatedState.stopStartLon = undefined;
-        updatedState.stopReason = undefined;
-        updatedState.stopMetadata = undefined;
-
-        await this.deviceState.saveDeviceState(updatedState);
-
-        this.logger.debug(
-          `Stop ${event.stopId} completed for device ${position.deviceId}: ${event.duration}s`,
         );
       }
     } catch (error) {
