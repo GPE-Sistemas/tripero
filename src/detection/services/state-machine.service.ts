@@ -375,7 +375,8 @@ export class StateMachineService {
     if (!ignitionContext.lastIgnitionSeenAt) return false;
 
     const expiryMs = IGNITION_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
-    const elapsed = Date.now() - ignitionContext.lastIgnitionSeenAt.getTime();
+    const lastSeen = new Date(ignitionContext.lastIgnitionSeenAt);
+    const elapsed = Date.now() - lastSeen.getTime();
     return elapsed < expiryMs;
   }
 

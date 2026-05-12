@@ -507,6 +507,9 @@ export class TrackerStateService {
         tripStartTime: data.tripStartTime
           ? new Date(data.tripStartTime)
           : undefined,
+        lastIgnitionSeenAt: data.lastIgnitionSeenAt
+          ? new Date(data.lastIgnitionSeenAt)
+          : undefined,
         firstSeenAt: new Date(data.firstSeenAt),
         lastSeenAt: new Date(data.lastSeenAt),
         createdAt: new Date(data.createdAt),
