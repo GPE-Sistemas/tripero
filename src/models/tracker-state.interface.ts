@@ -40,6 +40,10 @@ export interface ITrackerState {
   totalIdleTime: number; // segundos
   totalStopsCount: number;
 
+  // Detección de sensor de ignición
+  hasIgnition: boolean; // true si alguna vez llegó ignition=true
+  lastIgnitionSeenAt?: Date; // última vez que llegó ignition=true
+
   // Tracking de conexión eléctrica (inferido de overnight gaps)
   overnightGapCount: number; // Cantidad de gaps nocturnos detectados
   lastOvernightGapAt?: Date; // Fecha del último gap nocturno

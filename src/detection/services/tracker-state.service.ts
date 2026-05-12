@@ -88,6 +88,12 @@ export class TrackerStateService {
       state.lastSeenAt = new Date();
       state.updatedAt = new Date();
 
+      // Registrar si tiene sensor de ignición (nunca vuelve a false)
+      if (position.ignition === true) {
+        state.hasIgnition = true;
+        state.lastIgnitionSeenAt = new Date(position.timestamp);
+      }
+
       // 6. Actualizar velocidad máxima del trip si hay un trip activo
       if (state.currentTripId && position.speed > (state.tripMaxSpeed || 0)) {
         state.tripMaxSpeed = position.speed;
@@ -553,6 +559,8 @@ export class TrackerStateService {
       total_driving_time: state.totalDrivingTime,
       total_idle_time: state.totalIdleTime,
       total_stops_count: state.totalStopsCount,
+      has_ignition: state.hasIgnition || false,
+      last_ignition_seen_at: state.lastIgnitionSeenAt || null,
       overnight_gap_count: state.overnightGapCount || 0,
       last_overnight_gap_at: state.lastOvernightGapAt || null,
       power_type: state.powerType || 'unknown',
@@ -597,6 +605,7 @@ export class TrackerStateService {
       totalDrivingTime: 0,
       totalIdleTime: 0,
       totalStopsCount: 0,
+      hasIgnition: false,
       overnightGapCount: 0,
       powerType: 'unknown',
       firstSeenAt: now,
@@ -635,6 +644,8 @@ export class TrackerStateService {
       totalDrivingTime: entity.total_driving_time,
       totalIdleTime: entity.total_idle_time,
       totalStopsCount: entity.total_stops_count,
+      hasIgnition: entity.has_ignition || false,
+      lastIgnitionSeenAt: entity.last_ignition_seen_at,
       overnightGapCount: entity.overnight_gap_count || 0,
       lastOvernightGapAt: entity.last_overnight_gap_at,
       powerType: entity.power_type || 'unknown',

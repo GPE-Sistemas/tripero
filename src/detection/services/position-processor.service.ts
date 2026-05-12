@@ -90,7 +90,13 @@ export class PositionProcessorService {
       );
 
       // 4. Procesar con la máquina de estados
-      const result = this.stateMachine.processPosition(position, currentState);
+      const trackerStateForSM = await this.trackerState.getState(position.deviceId);
+      const hasIgnition = trackerStateForSM?.hasIgnition === true;
+      const lastIgnitionSeenAt = trackerStateForSM?.lastIgnitionSeenAt;
+      const result = this.stateMachine.processPosition(position, currentState, {
+        hasIgnition,
+        lastIgnitionSeenAt,
+      });
 
       // 5. Guardar nuevo estado
       await this.deviceState.saveDeviceState(result.updatedState);

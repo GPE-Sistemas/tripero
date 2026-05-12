@@ -89,6 +89,13 @@ export class TrackerState {
   @Column({ type: 'int', name: 'total_stops_count', default: 0 })
   total_stops_count: number;
 
+  // Detección de sensor de ignición
+  @Column({ type: 'boolean', name: 'has_ignition', default: false })
+  has_ignition: boolean;
+
+  @Column({ type: 'timestamptz', name: 'last_ignition_seen_at', nullable: true })
+  last_ignition_seen_at: Date | null;
+
   // Tracking de problemas de energía (overnight gaps)
   @Column({ type: 'int', name: 'overnight_gap_count', default: 0 })
   overnight_gap_count: number;
