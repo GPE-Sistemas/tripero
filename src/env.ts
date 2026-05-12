@@ -37,3 +37,9 @@ export const POSITION_MAX_AGE_HOURS = parseInt(
   process.env.POSITION_MAX_AGE_HOURS || '24',
   10,
 ); // Máximo age de posiciones en horas
+
+// Ignition detection
+export const IGNITION_EXPIRY_DAYS = parseInt(
+  process.env.IGNITION_EXPIRY_DAYS || '7',
+  10,
+); // Días sin ignition=true antes de caer a motion-only

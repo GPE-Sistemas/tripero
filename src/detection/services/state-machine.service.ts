@@ -8,6 +8,12 @@ import {
 } from '../models';
 import { IPositionEvent } from '../../interfaces';
 import { DistanceValidatorService } from './distance-validator.service';
+import { IGNITION_EXPIRY_DAYS } from '../../env';
+
+export interface IIgnitionContext {
+  hasIgnition: boolean;
+  lastIgnitionSeenAt?: Date;
+}
 
 /**
  * Resultado de procesar una posición
@@ -76,10 +82,11 @@ export class StateMachineService {
   processPosition(
     position: IPositionEvent,
     currentState: IDeviceMotionState | null,
+    ignitionContext?: IIgnitionContext,
   ): IStateTransitionResult {
     // Si no hay estado previo, crear uno inicial
     if (!currentState) {
-      return this.handleFirstPosition(position);
+      return this.handleFirstPosition(position, ignitionContext);
     }
 
     // Validar gap temporal
@@ -88,11 +95,11 @@ export class StateMachineService {
       this.logger.warn(
         `Large time gap detected for device ${position.deviceId}: ${gap}ms`,
       );
-      return this.handleLargeGap(position, currentState);
+      return this.handleLargeGap(position, currentState, ignitionContext);
     }
 
     // Determinar nuevo estado basado en ignición y velocidad
-    const newState = this.determineState(position, currentState);
+    const newState = this.determineState(position, currentState, ignitionContext);
     const previousState = currentState.state;
     const transitionOccurred = newState !== previousState;
 
@@ -221,12 +228,18 @@ export class StateMachineService {
    */
   private handleFirstPosition(
     position: IPositionEvent,
+    ignitionContext?: IIgnitionContext,
   ): IStateTransitionResult {
-    const state: MotionState = position.ignition
-      ? position.speed >= this.thresholds.minMovingSpeed
+    const useIgnition = this.shouldUseIgnition(ignitionContext);
+    const state: MotionState = useIgnition
+      ? position.ignition
+        ? position.speed >= this.thresholds.minMovingSpeed
+          ? MotionState.MOVING
+          : MotionState.IDLE
+        : MotionState.STOPPED
+      : position.speed >= this.thresholds.minMovingSpeed
         ? MotionState.MOVING
-        : MotionState.IDLE
-      : MotionState.STOPPED;
+        : MotionState.STOPPED;
 
     const deviceState: IDeviceMotionState = {
       deviceId: position.deviceId,
@@ -308,17 +321,35 @@ export class StateMachineService {
   }
 
   /**
-   * Determina el nuevo estado basado en la posición actual
+   * Determina el nuevo estado basado en la posición actual.
    *
-   * Lógica "Ignition-First":
-   * 1. Si ignition OFF → STOPPED (sin importar velocidad)
-   * 2. Si ignition ON y speed >= umbral → MOVING
-   * 3. Si ignition ON y speed < umbral → IDLE
+   * Modo "Ignition-First" (device con sensor de ignición activo):
+   * 1. ignition OFF → STOPPED siempre
+   * 2. ignition ON + speed >= umbral → MOVING
+   * 3. ignition ON + speed < umbral → IDLE
+   *
+   * Modo "Motion-Only" (device sin sensor o con sensor expirado):
+   * 1. speed >= umbral → MOVING
+   * 2. speed < umbral → STOPPED (no hay IDLE sin ignición)
    */
   private determineState(
     position: IPositionEvent,
     currentState: IDeviceMotionState,
+    ignitionContext?: IIgnitionContext,
   ): MotionState {
+    const useIgnition = this.shouldUseIgnition(ignitionContext);
+
+    if (!useIgnition) {
+      // Motion-only: decidir solo por velocidad
+      const isMoving = position.speed >= this.thresholds.minMovingSpeed;
+      const avgSpeed = currentState.speedAvg30s ?? position.speed;
+      const isMovingByAvg = avgSpeed >= this.thresholds.minMovingSpeed;
+
+      if (isMoving && isMovingByAvg) return MotionState.MOVING;
+      if (!isMoving && !isMovingByAvg) return MotionState.STOPPED;
+      return currentState.state;
+    }
+
     // Ignition-First: Si ignición OFF, siempre STOPPED
     if (!position.ignition) {
       return MotionState.STOPPED;
@@ -326,27 +357,26 @@ export class StateMachineService {
 
     // Ignición ON - evaluar velocidad
     const isMoving = position.speed >= this.thresholds.minMovingSpeed;
-
-    // Usar promedio de velocidad si está disponible para suavizar transiciones
-    const avgSpeed =
-      currentState.speedAvg30s !== undefined
-        ? currentState.speedAvg30s
-        : position.speed;
-
+    const avgSpeed = currentState.speedAvg30s ?? position.speed;
     const isMovingByAvg = avgSpeed >= this.thresholds.minMovingSpeed;
 
-    // Si la velocidad actual Y el promedio indican movimiento → MOVING
-    if (isMoving && isMovingByAvg) {
-      return MotionState.MOVING;
-    }
-
-    // Si ambas indican quieto → IDLE (ignición ON pero sin movimiento)
-    if (!isMoving && !isMovingByAvg) {
-      return MotionState.IDLE;
-    }
-
-    // En caso de discrepancia, mantener estado actual para evitar flapping
+    if (isMoving && isMovingByAvg) return MotionState.MOVING;
+    if (!isMoving && !isMovingByAvg) return MotionState.IDLE;
     return currentState.state;
+  }
+
+  /**
+   * Determina si debe usarse ignition-first o motion-only para este device.
+   * Usa ignition-first solo si el device tuvo ignición Y la última vez
+   * que llegó ignition=true fue dentro del período de expiración configurado.
+   */
+  private shouldUseIgnition(ignitionContext?: IIgnitionContext): boolean {
+    if (!ignitionContext?.hasIgnition) return false;
+    if (!ignitionContext.lastIgnitionSeenAt) return false;
+
+    const expiryMs = IGNITION_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+    const elapsed = Date.now() - ignitionContext.lastIgnitionSeenAt.getTime();
+    return elapsed < expiryMs;
   }
 
   /**
@@ -687,6 +717,7 @@ export class StateMachineService {
   private handleLargeGap(
     position: IPositionEvent,
     currentState: IDeviceMotionState,
+    ignitionContext?: IIgnitionContext,
   ): IStateTransitionResult {
     // Calcular duración del gap
     const gapDuration =
@@ -769,7 +800,7 @@ export class StateMachineService {
     }
 
     // Reiniciar como si fuera primera posición
-    const firstPosResult = this.handleFirstPosition(position);
+    const firstPosResult = this.handleFirstPosition(position, ignitionContext);
 
     // Si decidimos NO cerrar el trip (ni guardarlo ni descartarlo), restaurar los datos del trip en el estado
     if (!shouldEndTrip && !shouldDiscardTrip && currentState.currentTripId) {
