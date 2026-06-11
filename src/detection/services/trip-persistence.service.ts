@@ -48,49 +48,57 @@ export class TripPersistenceService implements OnModuleInit {
       this.subscriber = this.redisService.createSubscriber();
 
       // Obtener canales con prefijo (publish usa prefijo, así que subscribe también debe usarlo)
-      const tripStartedChannel = this.redisService.getPrefixedChannel('trip:started');
-      const tripCompletedChannel = this.redisService.getPrefixedChannel('trip:completed');
-      const tripDiscardedChannel = this.redisService.getPrefixedChannel('trip:discarded');
+      const tripStartedChannel =
+        this.redisService.getPrefixedChannel('trip:started');
+      const tripCompletedChannel =
+        this.redisService.getPrefixedChannel('trip:completed');
+      const tripDiscardedChannel =
+        this.redisService.getPrefixedChannel('trip:discarded');
 
       // Manejar eventos - encolar para procesamiento secuencial por dispositivo
-      this.subscriber.on('message', async (channel: string, message: string) => {
-        try {
-          const event = JSON.parse(message);
-          const deviceId = event.deviceId;
+      this.subscriber.on(
+        'message',
+        async (channel: string, message: string) => {
+          try {
+            const event = JSON.parse(message);
+            const deviceId = event.deviceId;
 
-          if (!deviceId) {
-            this.logger.warn(`Event without deviceId on channel ${channel}`);
-            return;
-          }
+            if (!deviceId) {
+              this.logger.warn(`Event without deviceId on channel ${channel}`);
+              return;
+            }
 
-          // Encolar evento para procesamiento secuencial
-          if (channel === tripStartedChannel) {
-            await this.eventQueueManager.enqueue(deviceId, async () => {
-              await this.handleTripStarted(message);
-            });
-          } else if (channel === tripCompletedChannel) {
-            await this.eventQueueManager.enqueue(deviceId, async () => {
-              await this.handleTripCompleted(message);
-            });
-          } else if (channel === tripDiscardedChannel) {
-            await this.eventQueueManager.enqueue(deviceId, async () => {
-              await this.handleTripDiscarded(message);
-            });
+            // Encolar evento para procesamiento secuencial
+            if (channel === tripStartedChannel) {
+              await this.eventQueueManager.enqueue(deviceId, async () => {
+                await this.handleTripStarted(message);
+              });
+            } else if (channel === tripCompletedChannel) {
+              await this.eventQueueManager.enqueue(deviceId, async () => {
+                await this.handleTripCompleted(message);
+              });
+            } else if (channel === tripDiscardedChannel) {
+              await this.eventQueueManager.enqueue(deviceId, async () => {
+                await this.handleTripDiscarded(message);
+              });
+            }
+          } catch (error) {
+            this.logger.error(
+              `Error enqueuing event from channel ${channel}`,
+              error.stack,
+            );
           }
-        } catch (error) {
-          this.logger.error(
-            `Error enqueuing event from channel ${channel}`,
-            error.stack,
-          );
-        }
-      });
+        },
+      );
 
       // Suscribirse a canales con prefijo
       await this.subscriber.subscribe(tripStartedChannel);
       await this.subscriber.subscribe(tripCompletedChannel);
       await this.subscriber.subscribe(tripDiscardedChannel);
 
-      this.logger.log(`Suscrito a eventos: ${tripStartedChannel}, ${tripCompletedChannel}, ${tripDiscardedChannel}`);
+      this.logger.log(
+        `Suscrito a eventos: ${tripStartedChannel}, ${tripCompletedChannel}, ${tripDiscardedChannel}`,
+      );
     } catch (error) {
       this.logger.error('Error suscribiéndose a eventos de trips', error.stack);
       throw error;
@@ -161,9 +169,7 @@ export class TripPersistenceService implements OnModuleInit {
       const trip = await this.tripRepository.findById(event.tripId);
 
       if (!trip) {
-        this.logger.warn(
-          `Trip ${event.tripId} no encontrado en BD`,
-        );
+        this.logger.warn(`Trip ${event.tripId} no encontrado en BD`);
         return;
       }
 

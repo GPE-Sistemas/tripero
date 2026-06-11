@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { REDIS_CHANNELS } from '../../auxiliares/redis/redis.constants';
@@ -16,7 +21,9 @@ import {
  * Escucha el canal Redis PubSub 'position:new' y procesa cada posición
  */
 @Injectable()
-export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy {
+export class PositionSubscriberService
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(PositionSubscriberService.name);
   private subscriber: Redis;
   private isSubscribed = false;
@@ -144,7 +151,10 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
         );
 
         // Publicar evento de rechazo
-        await this.publishRejectedEvent(position, validation.reason || 'unknown');
+        await this.publishRejectedEvent(
+          position,
+          validation.reason || 'unknown',
+        );
 
         return;
       }
@@ -153,7 +163,9 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
       let ignition = position.ignition;
 
       if (ignition === undefined) {
-        const trackerState = await this.trackerStateService.getState(position.deviceId);
+        const trackerState = await this.trackerStateService.getState(
+          position.deviceId,
+        );
         ignition = trackerState?.lastIgnition ?? false;
 
         this.logger.debug(
@@ -168,7 +180,10 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
       };
 
       // Encolar la posición para procesamiento secuencial por dispositivo
-      await this.queueManager.enqueue(normalizedPosition.deviceId, normalizedPosition);
+      await this.queueManager.enqueue(
+        normalizedPosition.deviceId,
+        normalizedPosition,
+      );
     } catch (error) {
       this.logger.error(
         `Error handling position message: ${message}`,
@@ -219,10 +234,7 @@ export class PositionSubscriberService implements OnModuleInit, OnModuleDestroy 
         `Published rejection event for device ${rejectedEvent.deviceId}: ${reason}`,
       );
     } catch (error) {
-      this.logger.error(
-        'Error publishing rejection event',
-        error.stack,
-      );
+      this.logger.error('Error publishing rejection event', error.stack);
     }
   }
 }

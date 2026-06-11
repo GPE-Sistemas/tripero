@@ -9,7 +9,11 @@ import {
   DB_LOGGING,
 } from '../env';
 import { Trip, Stop, TrackerState } from './entities';
-import { TripRepository, StopRepository, TrackerStateRepository } from './repositories';
+import {
+  TripRepository,
+  StopRepository,
+  TrackerStateRepository,
+} from './repositories';
 
 @Module({
   imports: [
@@ -31,11 +35,12 @@ import { TripRepository, StopRepository, TrackerStateRepository } from './reposi
     }),
     TypeOrmModule.forFeature([Trip, Stop, TrackerState]),
   ],
-  providers: [
+  providers: [TripRepository, StopRepository, TrackerStateRepository],
+  exports: [
+    TypeOrmModule,
     TripRepository,
     StopRepository,
     TrackerStateRepository,
   ],
-  exports: [TypeOrmModule, TripRepository, StopRepository, TrackerStateRepository],
 })
 export class DatabaseModule {}

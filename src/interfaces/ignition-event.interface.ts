@@ -46,9 +46,7 @@ export interface IIgnitionEvent {
 /**
  * Validaciones del evento de ignición
  */
-export const validateIgnitionEvent = (
-  event: any,
-): event is IIgnitionEvent => {
+export const validateIgnitionEvent = (event: any): event is IIgnitionEvent => {
   // Campos requeridos
   if (!event.deviceId || typeof event.deviceId !== 'string') return false;
   if (!event.timestamp || typeof event.timestamp !== 'number') return false;

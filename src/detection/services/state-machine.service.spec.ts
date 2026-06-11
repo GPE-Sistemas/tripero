@@ -129,8 +129,7 @@ describe('StateMachineService — stop lifecycle in IDLE↔STOPPED transitions',
       );
 
       // duration del stop viejo = position.timestamp - previousStop.startTime
-      const duration =
-        (7_200_000 - result.previousStop!.startTime) / 1000;
+      const duration = (7_200_000 - result.previousStop!.startTime) / 1000;
       expect(duration).toBeCloseTo(7200, 0); // 2 horas
     });
   });
@@ -257,8 +256,7 @@ describe('StateMachineService — stop lifecycle in IDLE↔STOPPED transitions',
       );
       expect(r2.previousStop?.stopId).toBe(stopStoppedId);
       // startTime del stop STOPPED = 60_000 (cuando se creó en r1).
-      const stoppedDuration =
-        (7_260_000 - r2.previousStop!.startTime) / 1000;
+      const stoppedDuration = (7_260_000 - r2.previousStop!.startTime) / 1000;
       expect(stoppedDuration).toBeCloseTo(7200, 0); // 2h
       expect(r2.actions.endStop && r2.actions.startStop).toBe(true);
       state = { ...r2.updatedState };

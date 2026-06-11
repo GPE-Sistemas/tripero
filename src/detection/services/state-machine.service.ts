@@ -67,6 +67,15 @@ export interface IStateTransitionResult {
     detected: boolean;
     durationSeconds: number;
   };
+
+  // Cierre de trip "estilo Traccar": cuando el trip se cierra por una parada, el trip
+  // termina en el INICIO de la parada (no al reanudar). El tiempo estacionado pertenece
+  // al stop, no al trip. position-processor usa esto para el end_time/end_location del trip.
+  tripClosure?: {
+    endTime: number;
+    endLat: number;
+    endLon: number;
+  };
 }
 
 @Injectable()
@@ -99,7 +108,11 @@ export class StateMachineService {
     }
 
     // Determinar nuevo estado basado en ignición y velocidad
-    const newState = this.determineState(position, currentState, ignitionContext);
+    const newState = this.determineState(
+      position,
+      currentState,
+      ignitionContext,
+    );
     const previousState = currentState.state;
     const transitionOccurred = newState !== previousState;
 
@@ -113,8 +126,31 @@ export class StateMachineService {
       updatedState,
     );
 
-    // IMPORTANTE: Guardar datos del trip anterior ANTES de inicializar el nuevo
-    // para evitar pérdida de datos cuando ambos endTrip/discardTrip y startTrip son true
+    return this.applyTransition(
+      position,
+      previousState,
+      newState,
+      updatedState,
+      actions,
+    );
+  }
+
+  /**
+   * Aplica las acciones determinadas a `updatedState`: snapshots de trip/stop anterior
+   * (para cierres simultáneos), inicialización de trip/stop nuevos, y arma el resultado.
+   *
+   * Compartido entre el flujo normal y `handleLargeGap` para que un gap NO use una lógica
+   * distinta (evita fragmentar stops de vehículos estacionados que reportan espaciado).
+   */
+  private applyTransition(
+    position: IPositionEvent,
+    previousState: MotionState,
+    newState: MotionState,
+    updatedState: IDeviceMotionState,
+    actions: IStateTransitionResult['actions'],
+    overnightGap?: IStateTransitionResult['overnightGap'],
+  ): IStateTransitionResult {
+    // Snapshot del trip anterior ANTES de inicializar el nuevo (cierre+inicio simultáneos)
     let previousTrip: IStateTransitionResult['previousTrip'] = undefined;
     if (
       (actions.endTrip || actions.discardTrip) &&
@@ -133,6 +169,23 @@ export class StateMachineService {
       };
     }
 
+    // Cierre estilo Traccar: si el trip se cierra y hay una parada en curso, el trip termina
+    // en el INICIO de la parada (no "ahora"). Se calcula ANTES de que startStop sobrescriba
+    // stopStartTime. Si el cierre no es por una parada (p. ej. gap nocturno en movimiento sin
+    // stop), queda undefined y position-processor usa lastTimestamp.
+    let tripClosure: IStateTransitionResult['tripClosure'] = undefined;
+    if (
+      (actions.endTrip || actions.discardTrip) &&
+      updatedState.currentStopId &&
+      updatedState.stopStartTime !== undefined
+    ) {
+      tripClosure = {
+        endTime: updatedState.stopStartTime,
+        endLat: updatedState.stopStartLat ?? updatedState.lastLat,
+        endLon: updatedState.stopStartLon ?? updatedState.lastLon,
+      };
+    }
+
     // Inicializar trip si es necesario
     if (actions.startTrip) {
       updatedState.currentTripId = this.generateTripId(position.deviceId);
@@ -142,8 +195,7 @@ export class StateMachineService {
       updatedState.tripDistance = 0;
       updatedState.tripMaxSpeed = position.speed;
       updatedState.tripStopsCount = 0;
-      updatedState.tripConfirmed = false; // Trip no confirmado hasta cumplir mínimos
-      // Inicializar contexto para detección de ruido GPS
+      updatedState.tripConfirmed = false;
       updatedState.tripMaxDistanceFromOrigin = 0;
       updatedState.tripBoundingBox = {
         minLat: position.latitude,
@@ -162,10 +214,8 @@ export class StateMachineService {
       };
     }
 
-    // Snapshot del stop anterior ANTES de que startStop lo sobrescriba.
-    // Sin esto, en transiciones IDLE↔STOPPED el stop viejo se pierde (bug histórico:
-    // position-processor leía currentStopId ya sobrescrito y publicaba stop:completed
-    // con duration=0, dejando el stop real huérfano en BD).
+    // Snapshot del stop anterior ANTES de que startStop lo sobrescriba (cierre+inicio simultáneos,
+    // p. ej. IDLE↔STOPPED). Sin esto el stop real queda huérfano con duration=0.
     let previousStop: IStateTransitionResult['previousStop'] = undefined;
     if (
       actions.endStop &&
@@ -183,20 +233,11 @@ export class StateMachineService {
       };
     }
 
-    // Finalizar stop si es necesario
-    // NOTA: NO limpiar datos del stop aquí - position-processor lo hará después de publicar el evento
+    // Finalizar stop: NO limpiar datos aquí (position-processor los necesita para el evento)
     if (actions.endStop && updatedState.currentStopId) {
-      // Incrementar contador de stops si estamos dentro de un trip
       if (updatedState.currentTripId) {
         updatedState.tripStopsCount = (updatedState.tripStopsCount || 0) + 1;
       }
-
-      // NO limpiar datos aquí - position-processor necesita esta info para el evento
-      // updatedState.currentStopId = undefined;
-      // updatedState.stopStartTime = undefined;
-      // updatedState.stopStartLat = undefined;
-      // updatedState.stopStartLon = undefined;
-      // updatedState.stopReason = undefined;
     }
 
     // Inicializar stop si es necesario
@@ -209,17 +250,17 @@ export class StateMachineService {
       updatedState.stopReason = stopReason;
     }
 
-    const reason = this.getTransitionReason(position, previousState, newState);
-
     return {
       previousState,
       newState,
-      transitionOccurred,
-      reason,
+      transitionOccurred: newState !== previousState,
+      reason: this.getTransitionReason(position, previousState, newState),
       actions,
       updatedState,
       previousTrip,
       previousStop,
+      overnightGap,
+      tripClosure,
     };
   }
 
@@ -339,30 +380,82 @@ export class StateMachineService {
   ): MotionState {
     const useIgnition = this.shouldUseIgnition(ignitionContext);
 
+    // Velocidad EFECTIVA = max(speed reportado, velocidad implícita por GPS).
+    // Colchón para trackers que reportan speed=0 estando en movimiento: si el desplazamiento
+    // GPS entre posiciones implica una velocidad mayor, se usa esa. Evita paradas fantasma.
+    const effSpeed = this.effectiveSpeed(position, currentState);
+
+    const cameFromStop =
+      currentState.state === MotionState.STOPPED ||
+      currentState.state === MotionState.IDLE;
+
     if (!useIgnition) {
       // Motion-only: decidir solo por velocidad
-      const isMoving = position.speed >= this.thresholds.minMovingSpeed;
-      const avgSpeed = currentState.speedAvg30s ?? position.speed;
+      const isMoving = effSpeed >= this.thresholds.minMovingSpeed;
+      const avgSpeed = currentState.speedAvg30s ?? effSpeed;
       const isMovingByAvg = avgSpeed >= this.thresholds.minMovingSpeed;
 
+      // Reanudación responsiva: si venimos de detenido y hay movimiento instantáneo claro,
+      // pasar a MOVING ya (sin esperar el promedio). Cierra el stop cuando el vehículo
+      // realmente arranca, no ~90s después. La vuelta a STOPPED sigue siendo conservadora
+      // (exige instantáneo Y promedio bajos), lo que evita flapping en stop-and-go.
+      if (cameFromStop && isMoving) return MotionState.MOVING;
       if (isMoving && isMovingByAvg) return MotionState.MOVING;
       if (!isMoving && !isMovingByAvg) return MotionState.STOPPED;
       return currentState.state;
     }
 
-    // Ignition-First: Si ignición OFF, siempre STOPPED
+    // Ignition-First: Si ignición OFF → normalmente STOPPED.
+    // EXCEPCIÓN: si el GPS muestra movimiento sostenido (velocidad efectiva instantánea Y
+    // promedio >= umbral), es un glitch del sensor de ignición (reporta OFF mientras el
+    // vehículo se mueve). No forzar STOPPED — tratarlo como MOVING. Evita "paradas" de
+    // ignition_off mientras el auto va a 90 km/h.
     if (!position.ignition) {
+      const avgSpeed = currentState.speedAvg30s ?? effSpeed;
+      if (
+        effSpeed >= this.thresholds.minMovingSpeed &&
+        avgSpeed >= this.thresholds.minMovingSpeed
+      ) {
+        return MotionState.MOVING;
+      }
       return MotionState.STOPPED;
     }
 
     // Ignición ON - evaluar velocidad
-    const isMoving = position.speed >= this.thresholds.minMovingSpeed;
-    const avgSpeed = currentState.speedAvg30s ?? position.speed;
+    const isMoving = effSpeed >= this.thresholds.minMovingSpeed;
+    const avgSpeed = currentState.speedAvg30s ?? effSpeed;
     const isMovingByAvg = avgSpeed >= this.thresholds.minMovingSpeed;
 
+    // Reanudación responsiva desde detenido (ver nota en la rama motion-only).
+    if (cameFromStop && isMoving) return MotionState.MOVING;
     if (isMoving && isMovingByAvg) return MotionState.MOVING;
     if (!isMoving && !isMovingByAvg) return MotionState.IDLE;
     return currentState.state;
+  }
+
+  /**
+   * Velocidad efectiva (km/h) = max(speed reportado, velocidad implícita por GPS).
+   * La implícita se calcula desde el desplazamiento entre la última posición y la actual.
+   * Se ignora si el gap es grande (>5min, relocalización por pérdida de señal) o si da una
+   * velocidad imposible (>200 km/h, salto GPS), para no forzar MOVING por ruido.
+   */
+  private effectiveSpeed(
+    position: IPositionEvent,
+    currentState: IDeviceMotionState,
+  ): number {
+    const dt = (position.timestamp - currentState.lastTimestamp) / 1000;
+    if (dt <= 0 || dt > 300) return position.speed;
+    const dist = this.calculateDistance(
+      currentState.lastLat,
+      currentState.lastLon,
+      position.latitude,
+      position.longitude,
+    );
+    const impliedKmh = (dist / dt) * 3.6;
+    if (impliedKmh > this.thresholds.minMovingSpeed && impliedKmh <= 200) {
+      return Math.max(position.speed, impliedKmh);
+    }
+    return position.speed;
   }
 
   /**
@@ -388,14 +481,16 @@ export class StateMachineService {
     currentState: IDeviceMotionState,
     newState: MotionState,
   ): IDeviceMotionState {
-    // Actualizar buffer de posiciones recientes
+    // Actualizar buffer de posiciones recientes.
+    // Se guarda la velocidad EFECTIVA (max reportado / implícita GPS) para que los promedios
+    // (speedAvg30s, etc.) también reflejen el movimiento real cuando el tracker reporta speed=0.
     const recentPositions = [
       ...(currentState.recentPositions || []),
       {
         timestamp: position.timestamp,
         lat: position.latitude,
         lon: position.longitude,
-        speed: position.speed,
+        speed: this.effectiveSpeed(position, currentState),
         ignition: position.ignition ?? false,
       },
     ];
@@ -704,6 +799,43 @@ export class StateMachineService {
       }
     }
 
+    // Cierre de trip "estilo Traccar": cuando el vehículo lleva DETENIDO (STOPPED) por
+    // >= minStopDuration con un trip aún abierto, cerrar el trip. El trip termina en el
+    // INICIO de la parada (lo setea applyTransition vía tripClosure), de modo que el tiempo
+    // estacionado pertenece al stop y la próxima salida genera un trip nuevo limpio.
+    // (Antes el trip quedaba abierto durante todo el estacionamiento y se cerraba al
+    // reanudar — o en un gap — "comiéndose" las horas detenido.)
+    if (
+      newState === MotionState.STOPPED &&
+      updatedState.currentTripId &&
+      updatedState.currentStopId &&
+      updatedState.stopStartTime !== undefined &&
+      !actions.endTrip &&
+      !actions.discardTrip
+    ) {
+      const parkedSec =
+        (updatedState.lastTimestamp - updatedState.stopStartTime) / 1000;
+      if (parkedSec >= this.thresholds.minStopDuration) {
+        const tripDuration =
+          (updatedState.stopStartTime - (updatedState.tripStartTime || 0)) /
+          1000;
+        const tripDistance = updatedState.tripDistance || 0;
+        if (
+          tripDuration >= this.thresholds.minTripDuration &&
+          tripDistance >= this.thresholds.minTripDistance
+        ) {
+          actions.endTrip = true;
+          this.logger.log(
+            `Closing trip for device ${updatedState.deviceId} at parking start ` +
+              `(stopped ${Math.round(parkedSec)}s >= ${this.thresholds.minStopDuration}s): ` +
+              `trip duration=${tripDuration.toFixed(0)}s, distance=${Math.round(tripDistance)}m`,
+          );
+        } else {
+          actions.discardTrip = true;
+        }
+      }
+    }
+
     return actions;
   }
 
@@ -720,115 +852,71 @@ export class StateMachineService {
     currentState: IDeviceMotionState,
     ignitionContext?: IIgnitionContext,
   ): IStateTransitionResult {
-    // Calcular duración del gap
     const gapDuration =
       (position.timestamp - currentState.lastTimestamp) / 1000;
-
-    // Calcular duración del stop actual (si existe)
-    const stopDuration =
-      currentState.currentStopId && currentState.stopStartTime
-        ? (position.timestamp - currentState.stopStartTime) / 1000
-        : 0;
-
-    // Determinar si es un gap "nocturno" (muy largo, típicamente tracker apagado)
     const isOvernightGap =
       gapDuration >= this.thresholds.maxOvernightGapDuration;
 
-    // Determinar si debemos cerrar el trip
-    // Cerrarlo si:
-    // 1. Hay un trip activo Y
-    // 2. (El stop duró >= minStopDuration O es un gap nocturno)
-    //
-    // El gap nocturno fuerza el cierre porque indica que el vehículo
-    // estuvo inactivo por mucho tiempo (ej: tracker desconectado de noche)
-    const shouldCloseTrip =
-      !!currentState.currentTripId &&
-      (stopDuration >= this.thresholds.minStopDuration || isOvernightGap);
+    const previousState = currentState.state;
+    const newState = this.determineState(
+      position,
+      currentState,
+      ignitionContext,
+    );
+    const updatedState = this.updateState(position, currentState, newState);
 
-    // Si debemos cerrar el trip, validar si cumple con los mínimos para ser guardado
-    let shouldEndTrip = false;
-    let shouldDiscardTrip = false;
+    // CLAVE: usar la MISMA lógica de transiciones que el flujo normal, NO resetear como
+    // "primera posición". Si el vehículo sigue detenido a través del gap (reportes espaciados
+    // de un vehículo estacionado), determineActions no devuelve acciones de stop → el stop
+    // en curso se PRESERVA en vez de fragmentarse/orfanarse. Antes (reset) cada gap >10min
+    // abandonaba el stop abierto y abría uno nuevo, partiendo una parada larga en pedazos
+    // que nunca cerraban (is_active=true) o quedaban con duración negativa.
+    const actions = this.determineActions(
+      previousState,
+      newState,
+      updatedState,
+    );
 
-    if (shouldCloseTrip) {
+    // Gap nocturno: forzar cierre del trip aunque no haya transición a STOPPED
+    // (cubre trackers que se apagan sin reportar el cambio de estado).
+    if (
+      isOvernightGap &&
+      updatedState.currentTripId &&
+      !actions.endTrip &&
+      !actions.discardTrip &&
+      !actions.startTrip
+    ) {
       const tripDuration =
-        (position.timestamp - (currentState.tripStartTime || 0)) / 1000;
-      const tripDistance = currentState.tripDistance || 0;
-
-      // Validar mínimos
+        (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) / 1000;
+      const tripDistance = updatedState.tripDistance || 0;
       if (
         tripDuration >= this.thresholds.minTripDuration &&
         tripDistance >= this.thresholds.minTripDistance
       ) {
-        shouldEndTrip = true;
-      } else {
-        // Trip muy corto, marcarlo para cerrar sin guardar
-        shouldDiscardTrip = true;
-        this.logger.debug(
-          `Discarding short trip for device ${position.deviceId} after gap: ` +
-            `duration=${tripDuration.toFixed(1)}s, distance=${Math.round(tripDistance)}m (below minimums)`,
-        );
-      }
-    }
-
-    const actions: IStateTransitionResult['actions'] = {
-      endTrip: shouldEndTrip,
-      discardTrip: shouldDiscardTrip,
-      startTrip: false,
-      updateTrip: false,
-      startStop: false,
-      endStop: !!currentState.currentStopId, // Cerrar stop si existe
-    };
-
-    if (shouldEndTrip) {
-      if (isOvernightGap && stopDuration < this.thresholds.minStopDuration) {
+        actions.endTrip = true;
         this.logger.log(
-          `Closing trip for device ${position.deviceId} due to overnight gap: ` +
-            `${Math.round(gapDuration)}s gap (>= ${this.thresholds.maxOvernightGapDuration}s threshold), ` +
-            `stop was only ${Math.round(stopDuration)}s but gap forces closure`,
+          `Closing trip for device ${position.deviceId} due to overnight gap: ${Math.round(gapDuration)}s`,
         );
       } else {
-        this.logger.log(
-          `Closing trip for device ${position.deviceId} after ${Math.round(gapDuration)}s gap: ` +
-            `stop was ${Math.round(stopDuration)}s (>= ${this.thresholds.minStopDuration}s threshold)`,
-        );
+        actions.discardTrip = true;
       }
-    } else if (currentState.currentTripId && !shouldDiscardTrip) {
+    } else {
       this.logger.debug(
-        `Keeping trip open for device ${position.deviceId} after ${Math.round(gapDuration)}s gap: ` +
-          `stop was ${Math.round(stopDuration)}s (< ${this.thresholds.minStopDuration}s threshold), ` +
-          `gap < ${this.thresholds.maxOvernightGapDuration}s overnight threshold`,
+        `Large gap for device ${position.deviceId}: ${Math.round(gapDuration)}s ` +
+          `(${previousState} → ${newState}); stop/trip preservados sin fragmentar`,
       );
     }
 
-    // Reiniciar como si fuera primera posición
-    const firstPosResult = this.handleFirstPosition(position, ignitionContext);
-
-    // Si decidimos NO cerrar el trip (ni guardarlo ni descartarlo), restaurar los datos del trip en el estado
-    if (!shouldEndTrip && !shouldDiscardTrip && currentState.currentTripId) {
-      firstPosResult.updatedState.currentTripId = currentState.currentTripId;
-      firstPosResult.updatedState.tripStartTime = currentState.tripStartTime;
-      firstPosResult.updatedState.tripStartLat = currentState.tripStartLat;
-      firstPosResult.updatedState.tripStartLon = currentState.tripStartLon;
-      firstPosResult.updatedState.tripDistance = currentState.tripDistance;
-      firstPosResult.updatedState.tripMaxSpeed = currentState.tripMaxSpeed;
-      firstPosResult.updatedState.tripStopsCount = currentState.tripStopsCount;
-      firstPosResult.updatedState.tripMetadata = currentState.tripMetadata;
-    }
-
-    return {
-      ...firstPosResult,
-      actions: {
-        ...actions,
-        ...firstPosResult.actions,
-      },
-      // Agregar información de overnight gap para tracking de problemas de energía
-      overnightGap: isOvernightGap
-        ? {
-            detected: true,
-            durationSeconds: gapDuration,
-          }
+    return this.applyTransition(
+      position,
+      previousState,
+      newState,
+      updatedState,
+      actions,
+      isOvernightGap
+        ? { detected: true, durationSeconds: gapDuration }
         : undefined,
-    };
+    );
   }
 
   /**

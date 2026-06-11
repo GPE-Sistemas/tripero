@@ -43,3 +43,10 @@ export const IGNITION_EXPIRY_DAYS = parseInt(
   process.env.IGNITION_EXPIRY_DAYS || '7',
   10,
 ); // Días sin ignition=true antes de caer a motion-only
+
+// Orphan cleanup
+// Permite desactivar el job de limpieza de trips/stops huérfanos.
+// Default: activo. Se desactiva con ORPHAN_CLEANUP_ENABLED=false (ej: instancia local
+// apuntada a una BD compartida, para no cerrar trips/stops de otros devices).
+export const ORPHAN_CLEANUP_ENABLED =
+  process.env.ORPHAN_CLEANUP_ENABLED !== 'false';

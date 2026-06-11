@@ -54,14 +54,24 @@ export class TrackerState {
   last_altitude: number | null;
 
   // Estado de movimiento
-  @Column({ type: 'varchar', length: 20, name: 'current_state', nullable: true })
+  @Column({
+    type: 'varchar',
+    length: 20,
+    name: 'current_state',
+    nullable: true,
+  })
   current_state: string | null;
 
   @Column({ type: 'timestamptz', name: 'state_since', nullable: true })
   state_since: Date | null;
 
   // Trip actual
-  @Column({ type: 'varchar', length: 255, name: 'current_trip_id', nullable: true })
+  @Column({
+    type: 'varchar',
+    length: 255,
+    name: 'current_trip_id',
+    nullable: true,
+  })
   current_trip_id: string | null;
 
   @Column({ type: 'timestamptz', name: 'trip_start_time', nullable: true })
@@ -93,14 +103,22 @@ export class TrackerState {
   @Column({ type: 'boolean', name: 'has_ignition', default: false })
   has_ignition: boolean;
 
-  @Column({ type: 'timestamptz', name: 'last_ignition_seen_at', nullable: true })
+  @Column({
+    type: 'timestamptz',
+    name: 'last_ignition_seen_at',
+    nullable: true,
+  })
   last_ignition_seen_at: Date | null;
 
   // Tracking de problemas de energía (overnight gaps)
   @Column({ type: 'int', name: 'overnight_gap_count', default: 0 })
   overnight_gap_count: number;
 
-  @Column({ type: 'timestamptz', name: 'last_overnight_gap_at', nullable: true })
+  @Column({
+    type: 'timestamptz',
+    name: 'last_overnight_gap_at',
+    nullable: true,
+  })
   last_overnight_gap_at: Date | null;
 
   @Column({

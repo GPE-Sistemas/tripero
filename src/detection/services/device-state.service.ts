@@ -16,9 +16,7 @@ export class DeviceStateService {
   /**
    * Obtiene el estado actual de un dispositivo
    */
-  async getDeviceState(
-    deviceId: string,
-  ): Promise<IDeviceMotionState | null> {
+  async getDeviceState(deviceId: string): Promise<IDeviceMotionState | null> {
     const key = this.getStateKey(deviceId);
 
     try {

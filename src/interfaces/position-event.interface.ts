@@ -92,7 +92,9 @@ export interface ValidationResult {
  * Valida que un objeto cumple con la interfaz IPositionEvent
  * Retorna el motivo específico del rechazo para facilitar debugging
  */
-export const validatePositionEventWithReason = (event: any): ValidationResult => {
+export const validatePositionEventWithReason = (
+  event: any,
+): ValidationResult => {
   // Campos requeridos
   if (!event.deviceId || typeof event.deviceId !== 'string') {
     return { valid: false, reason: 'deviceId missing or invalid type' };
@@ -119,7 +121,10 @@ export const validatePositionEventWithReason = (event: any): ValidationResult =>
     return { valid: false, reason: `latitude out of range: ${event.latitude}` };
   }
   if (event.longitude < -180 || event.longitude > 180) {
-    return { valid: false, reason: `longitude out of range: ${event.longitude}` };
+    return {
+      valid: false,
+      reason: `longitude out of range: ${event.longitude}`,
+    };
   }
 
   // Validar velocidad
@@ -133,11 +138,17 @@ export const validatePositionEventWithReason = (event: any): ValidationResult =>
   const oldestAllowed = now - maxAgeMs;
   if (event.timestamp > now + 60000) {
     const futureMs = event.timestamp - now;
-    return { valid: false, reason: `timestamp in future by ${Math.round(futureMs / 1000)}s` };
+    return {
+      valid: false,
+      reason: `timestamp in future by ${Math.round(futureMs / 1000)}s`,
+    };
   }
   if (event.timestamp < oldestAllowed) {
     const ageHours = Math.round((now - event.timestamp) / (60 * 60 * 1000));
-    return { valid: false, reason: `timestamp too old: ${ageHours}h (max ${POSITION_MAX_AGE_HOURS}h)` };
+    return {
+      valid: false,
+      reason: `timestamp too old: ${ageHours}h (max ${POSITION_MAX_AGE_HOURS}h)`,
+    };
   }
 
   // Validar opcionales si están presentes
@@ -146,7 +157,10 @@ export const validatePositionEventWithReason = (event: any): ValidationResult =>
   }
   if (event.heading !== undefined) {
     if (typeof event.heading !== 'number') {
-      return { valid: false, reason: 'heading invalid type (expected number or null)' };
+      return {
+        valid: false,
+        reason: 'heading invalid type (expected number or null)',
+      };
     }
     if (event.heading < 0 || event.heading > 360) {
       return { valid: false, reason: `heading out of range: ${event.heading}` };
@@ -154,7 +168,10 @@ export const validatePositionEventWithReason = (event: any): ValidationResult =>
   }
   if (event.accuracy !== undefined) {
     if (typeof event.accuracy !== 'number') {
-      return { valid: false, reason: 'accuracy invalid type (expected number)' };
+      return {
+        valid: false,
+        reason: 'accuracy invalid type (expected number)',
+      };
     }
     if (event.accuracy < 0) {
       return { valid: false, reason: `accuracy negative: ${event.accuracy}` };
@@ -162,10 +179,16 @@ export const validatePositionEventWithReason = (event: any): ValidationResult =>
   }
   if (event.satellites !== undefined) {
     if (typeof event.satellites !== 'number') {
-      return { valid: false, reason: 'satellites invalid type (expected number)' };
+      return {
+        valid: false,
+        reason: 'satellites invalid type (expected number)',
+      };
     }
     if (event.satellites < 0) {
-      return { valid: false, reason: `satellites negative: ${event.satellites}` };
+      return {
+        valid: false,
+        reason: `satellites negative: ${event.satellites}`,
+      };
     }
   }
 
@@ -183,7 +206,8 @@ export const validatePositionEvent = (event: any): event is IPositionEvent => {
   if (typeof event.longitude !== 'number') return false;
   if (typeof event.speed !== 'number') return false;
   // ignition es opcional - si no viene, se asume false
-  if (event.ignition !== undefined && typeof event.ignition !== 'boolean') return false;
+  if (event.ignition !== undefined && typeof event.ignition !== 'boolean')
+    return false;
 
   // Validar rangos de latitud/longitud
   if (event.latitude < -90 || event.latitude > 90) return false;
@@ -200,7 +224,8 @@ export const validatePositionEvent = (event: any): event is IPositionEvent => {
   if (event.timestamp < oldestAllowed) return false;
 
   // Validar opcionales si están presentes
-  if (event.altitude !== undefined && typeof event.altitude !== 'number') return false;
+  if (event.altitude !== undefined && typeof event.altitude !== 'number')
+    return false;
   if (event.heading !== undefined) {
     if (typeof event.heading !== 'number') return false;
     if (event.heading < 0 || event.heading > 360) return false;
@@ -246,4 +271,4 @@ export interface IPositionRejectedEvent {
    * Posición original que fue rechazada (puede contener campos inválidos)
    */
   originalEvent: any;
-};
+}

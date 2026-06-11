@@ -20,7 +20,9 @@ class DeviceQueue {
     parentLogger: Logger,
   ) {
     this.lastActivity = Date.now();
-    this.logger = new Logger(`${parentLogger.constructor.name}:Queue:${deviceId}`);
+    this.logger = new Logger(
+      `${parentLogger.constructor.name}:Queue:${deviceId}`,
+    );
   }
 
   /**
@@ -95,7 +97,7 @@ class DeviceQueue {
    */
   isInactive(timeoutMs: number): boolean {
     const now = Date.now();
-    return !this.processing && (now - this.lastActivity) > timeoutMs;
+    return !this.processing && now - this.lastActivity > timeoutMs;
   }
 
   /**
@@ -248,9 +250,8 @@ export class DeviceQueueManager implements OnModuleInit {
       processingQueues,
       maxQueueSizeEver: this.maxQueueSize,
       devicesWithBacklog,
-      avgQueueSize: activeQueues > 0
-        ? (totalQueuedPositions / activeQueues).toFixed(2)
-        : 0,
+      avgQueueSize:
+        activeQueues > 0 ? (totalQueuedPositions / activeQueues).toFixed(2) : 0,
     };
   }
 
@@ -262,10 +263,10 @@ export class DeviceQueueManager implements OnModuleInit {
 
     this.logger.log(
       `Queue metrics: ${metrics.activeQueues} active queues, ` +
-      `${metrics.totalQueuedPositions} positions queued, ` +
-      `${metrics.processingQueues} processing, ` +
-      `avg size: ${metrics.avgQueueSize}, ` +
-      `max size ever: ${metrics.maxQueueSizeEver}`,
+        `${metrics.totalQueuedPositions} positions queued, ` +
+        `${metrics.processingQueues} processing, ` +
+        `avg size: ${metrics.avgQueueSize}, ` +
+        `max size ever: ${metrics.maxQueueSizeEver}`,
     );
 
     if (metrics.devicesWithBacklog.length > 0) {
@@ -289,7 +290,7 @@ export class DeviceQueueManager implements OnModuleInit {
     const metrics = this.getMetrics();
     this.logger.log(
       `Shutting down with ${metrics.activeQueues} active queues, ` +
-      `${metrics.totalQueuedPositions} positions still queued`,
+        `${metrics.totalQueuedPositions} positions still queued`,
     );
   }
 }

@@ -104,7 +104,12 @@ export class TripQualityAnalyzerService {
     totalSegments: number = 0,
   ): ITripQualityAnalysis {
     // Calcular distancia lineal inicio-fin
-    const linearDistance = this.haversineDistance(startLat, startLon, endLat, endLon);
+    const linearDistance = this.haversineDistance(
+      startLat,
+      startLon,
+      endLat,
+      endLon,
+    );
 
     // Calcular ratio (evitar división por cero)
     const tripRatio = tripDistance / Math.max(linearDistance, 50);

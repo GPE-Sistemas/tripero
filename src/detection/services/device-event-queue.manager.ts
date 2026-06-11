@@ -73,7 +73,7 @@ class DeviceEventQueue {
    */
   isInactive(timeoutMs: number): boolean {
     const now = Date.now();
-    return !this.processing && (now - this.lastActivity) > timeoutMs;
+    return !this.processing && now - this.lastActivity > timeoutMs;
   }
 
   /**
@@ -215,9 +215,8 @@ export class DeviceEventQueueManager implements OnModuleInit {
       processingQueues,
       maxQueueSizeEver: this.maxQueueSize,
       devicesWithBacklog,
-      avgQueueSize: activeQueues > 0
-        ? (totalQueuedEvents / activeQueues).toFixed(2)
-        : 0,
+      avgQueueSize:
+        activeQueues > 0 ? (totalQueuedEvents / activeQueues).toFixed(2) : 0,
     };
   }
 
@@ -229,8 +228,8 @@ export class DeviceEventQueueManager implements OnModuleInit {
 
     this.logger.log(
       `Event queue metrics: ${metrics.activeQueues} active queues, ` +
-      `${metrics.totalQueuedEvents} events queued, ` +
-      `${metrics.processingQueues} processing`,
+        `${metrics.totalQueuedEvents} events queued, ` +
+        `${metrics.processingQueues} processing`,
     );
 
     if (metrics.devicesWithBacklog.length > 0) {
@@ -254,7 +253,7 @@ export class DeviceEventQueueManager implements OnModuleInit {
     const metrics = this.getMetrics();
     this.logger.log(
       `Shutting down with ${metrics.activeQueues} active event queues, ` +
-      `${metrics.totalQueuedEvents} events still queued`,
+        `${metrics.totalQueuedEvents} events still queued`,
     );
   }
 }

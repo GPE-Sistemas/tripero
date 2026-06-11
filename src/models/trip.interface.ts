@@ -62,6 +62,7 @@ export interface ITrip {
   updatedAt: Date;
 }
 
-export interface ICreateTrip extends Omit<ITrip, '_id' | 'createdAt' | 'updatedAt'> {}
+export interface ICreateTrip
+  extends Omit<ITrip, '_id' | 'createdAt' | 'updatedAt'> {}
 
 export interface IUpdateTrip extends Partial<Omit<ITrip, '_id'>> {}

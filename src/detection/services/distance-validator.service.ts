@@ -149,10 +149,16 @@ export class DistanceValidatorService {
       this.logger.warn(
         `Invalid time delta: ${timeDelta}s (from: ${from.timestamp}, to: ${to.timestamp})`,
       );
-      return this.createResult(distance, 0, false, SegmentAnomalyReason.INVALID_TIME, {
-        distanceFromOrigin: 0,
-        timeDelta,
-      });
+      return this.createResult(
+        distance,
+        0,
+        false,
+        SegmentAnomalyReason.INVALID_TIME,
+        {
+          distanceFromOrigin: 0,
+          timeDelta,
+        },
+      );
     }
 
     // 3. Calcular velocidad implícita (m/s → km/h)
@@ -164,11 +170,17 @@ export class DistanceValidatorService {
         `Impossible speed: ${implicitSpeed.toFixed(1)} km/h ` +
           `(${distance.toFixed(1)}m in ${timeDelta.toFixed(1)}s)`,
       );
-      return this.createResult(distance, 0, false, SegmentAnomalyReason.IMPOSSIBLE_SPEED, {
-        distanceFromOrigin: tripContext?.maxDistanceFromOrigin || 0,
-        timeDelta,
-        implicitSpeed,
-      });
+      return this.createResult(
+        distance,
+        0,
+        false,
+        SegmentAnomalyReason.IMPOSSIBLE_SPEED,
+        {
+          distanceFromOrigin: tripContext?.maxDistanceFromOrigin || 0,
+          timeDelta,
+          implicitSpeed,
+        },
+      );
     }
 
     // 5. Si hay contexto de trip, evaluar si es ruido GPS
@@ -182,7 +194,9 @@ export class DistanceValidatorService {
       );
 
       // Calcular tamaño del bounding box
-      const bboxDiameter = this.calculateBoundingBoxDiameter(tripContext.boundingBox);
+      const bboxDiameter = this.calculateBoundingBoxDiameter(
+        tripContext.boundingBox,
+      );
 
       // Calcular velocidad promedio del trip
       const avgSpeed =
@@ -191,7 +205,10 @@ export class DistanceValidatorService {
           : to.speed;
 
       // === REGLA CLAVE: Si alguna vez se alejó significativamente, TODO es válido ===
-      if (tripContext.maxDistanceFromOrigin >= this.THRESHOLDS.MIN_DISTANCE_FOR_REAL_MOVEMENT) {
+      if (
+        tripContext.maxDistanceFromOrigin >=
+        this.THRESHOLDS.MIN_DISTANCE_FOR_REAL_MOVEMENT
+      ) {
         // El vehículo se movió de verdad - aceptar todo sin corrección
         return this.createResult(distance, distance, true, undefined, {
           distanceFromOrigin,
@@ -204,7 +221,8 @@ export class DistanceValidatorService {
       // === DETECTAR RUIDO GPS ===
       // Solo aplicar si se cumplen TODAS las condiciones de vehículo quieto
       const isLikelyGpsNoise =
-        tripContext.maxDistanceFromOrigin < this.THRESHOLDS.MAX_ORIGIN_DISTANCE_FOR_NOISE &&
+        tripContext.maxDistanceFromOrigin <
+          this.THRESHOLDS.MAX_ORIGIN_DISTANCE_FOR_NOISE &&
         bboxDiameter < this.THRESHOLDS.MAX_BBOX_FOR_NOISE &&
         avgSpeed < this.THRESHOLDS.MAX_AVG_SPEED_FOR_NOISE &&
         to.speed < this.THRESHOLDS.STATIONARY_SPEED_KMH;
@@ -216,12 +234,18 @@ export class DistanceValidatorService {
             `maxFromOrigin=${tripContext.maxDistanceFromOrigin.toFixed(1)}m, ` +
             `bbox=${bboxDiameter.toFixed(1)}m, avgSpeed=${avgSpeed.toFixed(1)}km/h`,
         );
-        return this.createResult(distance, 0, true, SegmentAnomalyReason.GPS_NOISE, {
-          distanceFromOrigin,
-          timeDelta,
-          implicitSpeed,
-          isGpsNoise: true,
-        });
+        return this.createResult(
+          distance,
+          0,
+          true,
+          SegmentAnomalyReason.GPS_NOISE,
+          {
+            distanceFromOrigin,
+            timeDelta,
+            implicitSpeed,
+            isGpsNoise: true,
+          },
+        );
       }
 
       // No es ruido GPS - aceptar distancia completa
@@ -236,12 +260,18 @@ export class DistanceValidatorService {
     // 6. Sin contexto de trip - validación básica
     // Filtrar solo movimientos muy pequeños con velocidad 0
     if (distance < this.THRESHOLDS.MIN_SEGMENT_DISTANCE && to.speed === 0) {
-      return this.createResult(distance, 0, true, SegmentAnomalyReason.GPS_NOISE, {
-        distanceFromOrigin: 0,
-        timeDelta,
-        implicitSpeed,
-        isGpsNoise: true,
-      });
+      return this.createResult(
+        distance,
+        0,
+        true,
+        SegmentAnomalyReason.GPS_NOISE,
+        {
+          distanceFromOrigin: 0,
+          timeDelta,
+          implicitSpeed,
+          isGpsNoise: true,
+        },
+      );
     }
 
     return this.createResult(distance, distance, true, undefined, {
@@ -256,10 +286,7 @@ export class DistanceValidatorService {
    * Actualiza el contexto del trip con una nueva posición
    * Debe llamarse después de validateSegment para mantener el contexto actualizado
    */
-  updateTripContext(
-    context: ITripContext,
-    position: IPosition,
-  ): ITripContext {
+  updateTripContext(context: ITripContext, position: IPosition): ITripContext {
     const distanceFromOrigin = this.haversineDistance(
       context.startLat,
       context.startLon,
@@ -269,7 +296,10 @@ export class DistanceValidatorService {
 
     return {
       ...context,
-      maxDistanceFromOrigin: Math.max(context.maxDistanceFromOrigin, distanceFromOrigin),
+      maxDistanceFromOrigin: Math.max(
+        context.maxDistanceFromOrigin,
+        distanceFromOrigin,
+      ),
       boundingBox: {
         minLat: Math.min(context.boundingBox.minLat, position.lat),
         maxLat: Math.max(context.boundingBox.maxLat, position.lat),
@@ -284,7 +314,11 @@ export class DistanceValidatorService {
   /**
    * Crea un contexto de trip inicial
    */
-  createInitialTripContext(startLat: number, startLon: number, startTime: number): ITripContext {
+  createInitialTripContext(
+    startLat: number,
+    startLon: number,
+    startTime: number,
+  ): ITripContext {
     return {
       startLat,
       startLon,
@@ -305,7 +339,9 @@ export class DistanceValidatorService {
   /**
    * Calcula el diámetro del bounding box (diagonal)
    */
-  private calculateBoundingBoxDiameter(bbox: ITripContext['boundingBox']): number {
+  private calculateBoundingBoxDiameter(
+    bbox: ITripContext['boundingBox'],
+  ): number {
     return this.haversineDistance(
       bbox.minLat,
       bbox.minLon,
@@ -317,7 +353,12 @@ export class DistanceValidatorService {
   /**
    * Calcula la distancia entre dos puntos GPS usando la fórmula de Haversine
    */
-  haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  haversineDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
     const dLat = this.toRadians(lat2 - lat1);
     const dLon = this.toRadians(lon2 - lon1);
 

@@ -44,43 +44,50 @@ export class StopPersistenceService implements OnModuleInit {
       this.subscriber = this.redisService.createSubscriber();
 
       // Obtener canales con prefijo (publish usa prefijo, así que subscribe también debe usarlo)
-      const stopStartedChannel = this.redisService.getPrefixedChannel('stop:started');
-      const stopCompletedChannel = this.redisService.getPrefixedChannel('stop:completed');
+      const stopStartedChannel =
+        this.redisService.getPrefixedChannel('stop:started');
+      const stopCompletedChannel =
+        this.redisService.getPrefixedChannel('stop:completed');
 
       // Manejar eventos - encolar para procesamiento secuencial por dispositivo
-      this.subscriber.on('message', async (channel: string, message: string) => {
-        try {
-          const event = JSON.parse(message);
-          const deviceId = event.deviceId;
+      this.subscriber.on(
+        'message',
+        async (channel: string, message: string) => {
+          try {
+            const event = JSON.parse(message);
+            const deviceId = event.deviceId;
 
-          if (!deviceId) {
-            this.logger.warn(`Event without deviceId on channel ${channel}`);
-            return;
-          }
+            if (!deviceId) {
+              this.logger.warn(`Event without deviceId on channel ${channel}`);
+              return;
+            }
 
-          // Encolar evento para procesamiento secuencial
-          if (channel === stopStartedChannel) {
-            await this.eventQueueManager.enqueue(deviceId, async () => {
-              await this.handleStopStarted(message);
-            });
-          } else if (channel === stopCompletedChannel) {
-            await this.eventQueueManager.enqueue(deviceId, async () => {
-              await this.handleStopCompleted(message);
-            });
+            // Encolar evento para procesamiento secuencial
+            if (channel === stopStartedChannel) {
+              await this.eventQueueManager.enqueue(deviceId, async () => {
+                await this.handleStopStarted(message);
+              });
+            } else if (channel === stopCompletedChannel) {
+              await this.eventQueueManager.enqueue(deviceId, async () => {
+                await this.handleStopCompleted(message);
+              });
+            }
+          } catch (error) {
+            this.logger.error(
+              `Error enqueuing event from channel ${channel}`,
+              error.stack,
+            );
           }
-        } catch (error) {
-          this.logger.error(
-            `Error enqueuing event from channel ${channel}`,
-            error.stack,
-          );
-        }
-      });
+        },
+      );
 
       // Suscribirse a canales con prefijo
       await this.subscriber.subscribe(stopStartedChannel);
       await this.subscriber.subscribe(stopCompletedChannel);
 
-      this.logger.log(`Suscrito a eventos: ${stopStartedChannel}, ${stopCompletedChannel}`);
+      this.logger.log(
+        `Suscrito a eventos: ${stopStartedChannel}, ${stopCompletedChannel}`,
+      );
     } catch (error) {
       this.logger.error('Error suscribiéndose a eventos de stops', error.stack);
       throw error;
@@ -151,9 +158,7 @@ export class StopPersistenceService implements OnModuleInit {
       const stop = await this.stopRepository.findById(event.stopId);
 
       if (!stop) {
-        this.logger.warn(
-          `Stop ${event.stopId} no encontrado en BD`,
-        );
+        this.logger.warn(`Stop ${event.stopId} no encontrado en BD`);
         return;
       }
 

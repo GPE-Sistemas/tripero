@@ -11,6 +11,7 @@ import { TrackerStateService } from './tracker-state.service';
 import { TripQualityAnalyzerService } from './trip-quality-analyzer.service';
 import { DEFAULT_THRESHOLDS } from '../models';
 import { Trip } from '../../database/entities/trip.entity';
+import { ORPHAN_CLEANUP_ENABLED } from '../../env';
 
 /**
  * Servicio encargado de limpiar trips y stops huérfanos
@@ -46,6 +47,13 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    if (!ORPHAN_CLEANUP_ENABLED) {
+      this.logger.warn(
+        'Orphan cleanup DESACTIVADO (ORPHAN_CLEANUP_ENABLED=false). No se ejecutará la limpieza periódica.',
+      );
+      return;
+    }
+
     if (process.env.BACKFILL_ORPHAN_METRICS === 'true') {
       await this.runBackfill();
     }

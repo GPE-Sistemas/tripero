@@ -25,15 +25,21 @@ export class HealthService {
       services: {
         redis: {
           status: redisCheck.status === 'fulfilled' ? 'up' : 'down',
-          details: redisCheck.status === 'fulfilled'
-            ? redisCheck.value
-            : { error: (redisCheck as PromiseRejectedResult).reason?.message },
+          details:
+            redisCheck.status === 'fulfilled'
+              ? redisCheck.value
+              : {
+                  error: redisCheck.reason?.message,
+                },
         },
         database: {
           status: databaseCheck.status === 'fulfilled' ? 'up' : 'down',
-          details: databaseCheck.status === 'fulfilled'
-            ? databaseCheck.value
-            : { error: (databaseCheck as PromiseRejectedResult).reason?.message },
+          details:
+            databaseCheck.status === 'fulfilled'
+              ? databaseCheck.value
+              : {
+                  error: databaseCheck.reason?.message,
+                },
         },
       },
     };

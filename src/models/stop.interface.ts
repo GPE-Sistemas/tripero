@@ -41,6 +41,7 @@ export interface IStop {
   updatedAt: Date;
 }
 
-export interface ICreateStop extends Omit<IStop, '_id' | 'createdAt' | 'updatedAt'> {}
+export interface ICreateStop
+  extends Omit<IStop, '_id' | 'createdAt' | 'updatedAt'> {}
 
 export interface IUpdateStop extends Partial<Omit<IStop, '_id'>> {}

@@ -24,12 +24,18 @@ export class EventPublisherService {
    */
   async publishTripStarted(event: ITripStartedEvent): Promise<void> {
     try {
-      await this.redis.publish(REDIS_CHANNELS.TRIP_STARTED, JSON.stringify(event));
+      await this.redis.publish(
+        REDIS_CHANNELS.TRIP_STARTED,
+        JSON.stringify(event),
+      );
       this.logger.log(
         `Published ${REDIS_CHANNELS.TRIP_STARTED} for device ${event.deviceId}, trip ${event.tripId}`,
       );
     } catch (error) {
-      this.logger.error(`Error publishing ${REDIS_CHANNELS.TRIP_STARTED}`, error.stack);
+      this.logger.error(
+        `Error publishing ${REDIS_CHANNELS.TRIP_STARTED}`,
+        error.stack,
+      );
     }
   }
 
@@ -38,12 +44,18 @@ export class EventPublisherService {
    */
   async publishTripCompleted(event: ITripCompletedEvent): Promise<void> {
     try {
-      await this.redis.publish(REDIS_CHANNELS.TRIP_COMPLETED, JSON.stringify(event));
+      await this.redis.publish(
+        REDIS_CHANNELS.TRIP_COMPLETED,
+        JSON.stringify(event),
+      );
       this.logger.log(
         `Published ${REDIS_CHANNELS.TRIP_COMPLETED} for device ${event.deviceId}, trip ${event.tripId}`,
       );
     } catch (error) {
-      this.logger.error(`Error publishing ${REDIS_CHANNELS.TRIP_COMPLETED}`, error.stack);
+      this.logger.error(
+        `Error publishing ${REDIS_CHANNELS.TRIP_COMPLETED}`,
+        error.stack,
+      );
     }
   }
 
@@ -52,13 +64,19 @@ export class EventPublisherService {
    */
   async publishTripDiscarded(event: ITripDiscardedEvent): Promise<void> {
     try {
-      await this.redis.publish(REDIS_CHANNELS.TRIP_DISCARDED, JSON.stringify(event));
+      await this.redis.publish(
+        REDIS_CHANNELS.TRIP_DISCARDED,
+        JSON.stringify(event),
+      );
       this.logger.log(
         `Published ${REDIS_CHANNELS.TRIP_DISCARDED} for device ${event.deviceId}, trip ${event.tripId}: ` +
           `${event.reason} (duration=${event.duration}s, distance=${event.distance}m)`,
       );
     } catch (error) {
-      this.logger.error(`Error publishing ${REDIS_CHANNELS.TRIP_DISCARDED}`, error.stack);
+      this.logger.error(
+        `Error publishing ${REDIS_CHANNELS.TRIP_DISCARDED}`,
+        error.stack,
+      );
     }
   }
 
@@ -67,12 +85,18 @@ export class EventPublisherService {
    */
   async publishStopStarted(event: IStopStartedEvent): Promise<void> {
     try {
-      await this.redis.publish(REDIS_CHANNELS.STOP_STARTED, JSON.stringify(event));
+      await this.redis.publish(
+        REDIS_CHANNELS.STOP_STARTED,
+        JSON.stringify(event),
+      );
       this.logger.log(
         `Published ${REDIS_CHANNELS.STOP_STARTED} for device ${event.deviceId}, stop ${event.stopId}`,
       );
     } catch (error) {
-      this.logger.error(`Error publishing ${REDIS_CHANNELS.STOP_STARTED}`, error.stack);
+      this.logger.error(
+        `Error publishing ${REDIS_CHANNELS.STOP_STARTED}`,
+        error.stack,
+      );
     }
   }
 
@@ -81,12 +105,18 @@ export class EventPublisherService {
    */
   async publishStopCompleted(event: IStopCompletedEvent): Promise<void> {
     try {
-      await this.redis.publish(REDIS_CHANNELS.STOP_COMPLETED, JSON.stringify(event));
+      await this.redis.publish(
+        REDIS_CHANNELS.STOP_COMPLETED,
+        JSON.stringify(event),
+      );
       this.logger.log(
         `Published ${REDIS_CHANNELS.STOP_COMPLETED} for device ${event.deviceId}, stop ${event.stopId}`,
       );
     } catch (error) {
-      this.logger.error(`Error publishing ${REDIS_CHANNELS.STOP_COMPLETED}`, error.stack);
+      this.logger.error(
+        `Error publishing ${REDIS_CHANNELS.STOP_COMPLETED}`,
+        error.stack,
+      );
     }
   }
 
@@ -97,13 +127,19 @@ export class EventPublisherService {
     event: ITrackerStateChangedEvent,
   ): Promise<void> {
     try {
-      await this.redis.publish(REDIS_CHANNELS.TRACKER_STATE_CHANGED, JSON.stringify(event));
+      await this.redis.publish(
+        REDIS_CHANNELS.TRACKER_STATE_CHANGED,
+        JSON.stringify(event),
+      );
       this.logger.log(
         `Published ${REDIS_CHANNELS.TRACKER_STATE_CHANGED} for device ${event.trackerId}: ` +
           `${event.previousState} → ${event.currentState} (${event.reason})`,
       );
     } catch (error) {
-      this.logger.error(`Error publishing ${REDIS_CHANNELS.TRACKER_STATE_CHANGED}`, error.stack);
+      this.logger.error(
+        `Error publishing ${REDIS_CHANNELS.TRACKER_STATE_CHANGED}`,
+        error.stack,
+      );
     }
   }
 }

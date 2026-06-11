@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import Redis from 'ioredis';
 import { RedisService } from '../../auxiliares/redis/redis.service';
 import { REDIS_CHANNELS } from '../../auxiliares/redis/redis.constants';
@@ -13,7 +18,9 @@ import { IIgnitionEvent, validateIgnitionEvent } from '../../interfaces';
  * como eventos separados (ej: GPS103) mantengan un estado persistente.
  */
 @Injectable()
-export class IgnitionSubscriberService implements OnModuleInit, OnModuleDestroy {
+export class IgnitionSubscriberService
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(IgnitionSubscriberService.name);
   private subscriber: Redis;
   private isSubscribed = false;
@@ -116,7 +123,10 @@ export class IgnitionSubscriberService implements OnModuleInit, OnModuleDestroy 
         this.isSubscribed = false;
         this.logger.log(`Unsubscribed from ${prefixedChannel} channel`);
       } catch (error) {
-        this.logger.error(`Error unsubscribing from ${prefixedChannel}`, error.stack);
+        this.logger.error(
+          `Error unsubscribing from ${prefixedChannel}`,
+          error.stack,
+        );
       }
     }
   }

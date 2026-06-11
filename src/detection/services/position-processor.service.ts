@@ -90,7 +90,9 @@ export class PositionProcessorService {
       );
 
       // 4. Procesar con la máquina de estados
-      const trackerStateForSM = await this.trackerState.getState(position.deviceId);
+      const trackerStateForSM = await this.trackerState.getState(
+        position.deviceId,
+      );
       const hasIgnition = trackerStateForSM?.hasIgnition === true;
       const lastIgnitionSeenAt = trackerStateForSM?.lastIgnitionSeenAt;
       const result = this.stateMachine.processPosition(position, currentState, {
@@ -250,8 +252,12 @@ export class PositionProcessorService {
           stopsCount: updatedState.tripStopsCount || 0,
         };
 
-        const tripDuration =
-          (updatedState.lastTimestamp - tripData.startTime) / 1000;
+        // Fin del trip estilo Traccar: si el cierre es por una parada, el trip termina en el
+        // INICIO de la parada (result.tripClosure), no "ahora" — el tiempo estacionado es del
+        // stop, no del trip. Si no hay parada (cierre por gap en movimiento), usa lastTimestamp.
+        const tripEndMs =
+          result.tripClosure?.endTime ?? updatedState.lastTimestamp;
+        const tripDuration = (tripEndMs - tripData.startTime) / 1000;
 
         // CRÍTICO: Calcular distancia del trip desde el odómetro global del TrackerState
         // Esto incluye TODA la distancia recorrida durante el trip, incluso durante stops
@@ -271,20 +277,22 @@ export class PositionProcessorService {
           );
         }
 
-        // Si hay un stop siendo cerrado simultáneamente (STOPPED→MOVING), el fin del trip
-        // es donde el vehículo se detuvo, no la posición que disparó MOVING
+        // Fin del trip = donde el vehículo se detuvo (inicio de la parada) si el cierre es por
+        // parada (tripClosure); sino, el stop que se cierra simultáneo; sino, la última posición.
         const endLat =
-          (actions.endStop && updatedState.stopStartLat) ||
-          updatedState.lastLat;
+          result.tripClosure?.endLat ??
+          ((actions.endStop && updatedState.stopStartLat) ||
+            updatedState.lastLat);
         const endLon =
-          (actions.endStop && updatedState.stopStartLon) ||
-          updatedState.lastLon;
+          result.tripClosure?.endLon ??
+          ((actions.endStop && updatedState.stopStartLon) ||
+            updatedState.lastLon);
 
         const event: ITripCompletedEvent = {
           tripId: tripData.tripId,
           deviceId: position.deviceId,
           startTime: new Date(tripData.startTime).toISOString(),
-          endTime: new Date(updatedState.lastTimestamp).toISOString(),
+          endTime: new Date(tripEndMs).toISOString(),
           duration: Math.round(tripDuration),
           distance: Math.round(tripDistance), // Usar odómetro global
           avgSpeed: this.calculateAvgSpeed(tripDistance, tripDuration), // Recalcular con distancia correcta
@@ -429,15 +437,26 @@ export class PositionProcessorService {
             };
 
         if (stopData.stopId && stopData.startTime !== undefined) {
-          const stopDuration =
-            (position.timestamp - stopData.startTime) / 1000;
+          // Guard: si el fin del stop cae ANTES de su inicio (duración negativa por
+          // oscilación de estados / snapshot desfasado), clampear el fin = inicio (duración 0)
+          // para no persistir basura (end < start). El front igual filtra stops muy cortos.
+          let stopEndMs = position.timestamp;
+          let stopDuration = (stopEndMs - stopData.startTime) / 1000;
+          if (stopDuration < 0) {
+            this.logger.warn(
+              `Stop ${stopData.stopId} con duración negativa (${Math.round(stopDuration)}s) ` +
+                `para device ${position.deviceId}: clamp a 0 (end=start)`,
+            );
+            stopEndMs = stopData.startTime;
+            stopDuration = 0;
+          }
 
           const event: IStopCompletedEvent = {
             stopId: stopData.stopId,
             tripId: updatedState.currentTripId,
             deviceId: position.deviceId,
             startTime: new Date(stopData.startTime).toISOString(),
-            endTime: new Date(position.timestamp).toISOString(),
+            endTime: new Date(stopEndMs).toISOString(),
             duration: Math.round(stopDuration),
             location: {
               type: 'Point',
