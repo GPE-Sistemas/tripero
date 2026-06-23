@@ -106,22 +106,34 @@ export class ReportsService {
         metadata,
       });
     } else {
-      // Usar métodos simples del repositorio si no hay filtros de metadata
+      // Usar métodos simples del repositorio si no hay filtros de metadata.
+      // includeActive=true: incluir paradas EN CURSO (sin cerrar) cuyo inicio cae en el rango.
+      // Una parada aún no terminada al momento de la consulta es relevante para el período
+      // (p. ej. el vehículo quedó estacionado / silencio nocturno y todavía no reanudó).
       if (deviceId && deviceId.length > 0) {
         const allStops = await Promise.all(
           deviceId.map((id) =>
-            this.stopRepository.findByAssetAndTimeRange(id, fromDate, toDate),
+            this.stopRepository.findByAssetAndTimeRange(
+              id,
+              fromDate,
+              toDate,
+              true,
+            ),
           ),
         );
         stops = allStops.flat();
       } else {
-        stops = await this.stopRepository.findByTimeRange(fromDate, toDate);
+        stops = await this.stopRepository.findByTimeRange(
+          fromDate,
+          toDate,
+          true,
+        );
       }
     }
 
     this.logger.debug(`Found ${stops.length} stops`);
 
-    return this.mapStopsToDto(stops);
+    return this.mapStopsToDto(stops, toDate);
   }
 
   /**
@@ -217,13 +229,14 @@ export class ReportsService {
     // para usar el query builder
     const stopRepo = (this.stopRepository as any).stopRepo;
 
+    // NOTA: a diferencia de trips, NO filtramos is_active=false: incluimos paradas en curso
+    // cuyo inicio cae en el rango (parada aún no terminada al momento de la consulta).
     const queryBuilder = stopRepo
       .createQueryBuilder('stop')
       .where('stop.start_time BETWEEN :fromDate AND :toDate', {
         fromDate,
         toDate,
-      })
-      .andWhere('stop.is_active = false');
+      });
 
     // Filtro por deviceId
     if (deviceIds && deviceIds.length > 0) {
@@ -287,22 +300,47 @@ export class ReportsService {
   }
 
   /**
-   * Mapear entidades Stop a DTOs
+   * Mapear entidades Stop a DTOs.
+   *
+   * Paradas EN CURSO (is_active / sin end_time): no tienen fin ni duración reales todavía.
+   * Para no reportar duration=0 (engañoso en una parada larga aún abierta) se las "cierra
+   * virtualmente" al fin del período consultado (o a ahora, lo que sea anterior) y se calcula
+   * la duración hasta ese límite. Se marca `isActive=true` para que el consumidor distinga una
+   * parada en curso de una terminada.
    */
-  private mapStopsToDto(stops: Stop[]): StopResponseDto[] {
-    return stops.map((stop) => ({
-      deviceId: stop.id_activo,
-      deviceName: undefined,
-      duration: stop.duration,
-      startTime: stop.start_time.toISOString(),
-      endTime: stop.end_time?.toISOString() || stop.start_time.toISOString(),
-      latitude: stop.latitude,
-      longitude: stop.longitude,
-      address: undefined, // Geocoding should be done by consuming service
-      engineHours: undefined, // TODO: si se necesita
-      startOdometer: stop.start_odometer ?? undefined,
-      endOdometer: stop.end_odometer ?? undefined,
-      reason: stop.reason,
-    }));
+  private mapStopsToDto(stops: Stop[], toDate: Date): StopResponseDto[] {
+    const now = new Date();
+    return stops.map((stop) => {
+      const isActive = stop.is_active || !stop.end_time;
+
+      let endTime: string;
+      let duration: number;
+      if (isActive) {
+        const startMs = stop.start_time.getTime();
+        const boundMs = Math.min(now.getTime(), toDate.getTime());
+        const endMs = Math.max(startMs, boundMs);
+        endTime = new Date(endMs).toISOString();
+        duration = Math.round((endMs - startMs) / 1000);
+      } else {
+        endTime = stop.end_time!.toISOString();
+        duration = stop.duration;
+      }
+
+      return {
+        deviceId: stop.id_activo,
+        deviceName: undefined,
+        duration,
+        startTime: stop.start_time.toISOString(),
+        endTime,
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+        address: undefined, // Geocoding should be done by consuming service
+        engineHours: undefined, // TODO: si se necesita
+        startOdometer: stop.start_odometer ?? undefined,
+        endOdometer: stop.end_odometer ?? undefined,
+        reason: stop.reason,
+        isActive,
+      };
+    });
   }
 }

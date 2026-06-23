@@ -52,7 +52,7 @@ export interface IStopStartedEvent {
     type: 'Point';
     coordinates: [number, number]; // [lon, lat]
   };
-  reason: 'ignition_off' | 'no_movement' | 'parking';
+  reason: 'ignition_off' | 'no_movement' | 'gap' | 'parking';
   currentState: 'STOPPED' | 'IDLE' | 'MOVING'; // Estado actual (siempre IDLE)
   odometer: number; // Odómetro total en metros (incluye offset)
   metadata?: Record<string, any>; // Metadata personalizado (ej: tenant_id, fleet_id, etc.)
@@ -69,7 +69,7 @@ export interface IStopCompletedEvent {
     type: 'Point';
     coordinates: [number, number]; // [lon, lat]
   };
-  reason: 'ignition_off' | 'no_movement' | 'parking';
+  reason: 'ignition_off' | 'no_movement' | 'gap' | 'parking';
   currentState: 'STOPPED' | 'IDLE' | 'MOVING'; // Estado actual (MOVING si retoma movimiento)
   odometer: number; // Odómetro total en metros (incluye offset)
   metadata?: Record<string, any>; // Metadata personalizado (ej: tenant_id, fleet_id, etc.)

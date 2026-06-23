@@ -80,7 +80,7 @@ export interface IDeviceMotionState {
   stopStartTime?: number;
   stopStartLat?: number;
   stopStartLon?: number;
-  stopReason?: 'ignition_off' | 'no_movement' | 'parking';
+  stopReason?: 'ignition_off' | 'no_movement' | 'gap' | 'parking';
   stopMetadata?: Record<string, any>; // Metadata del stop (se propaga del position event)
 
   // Última posición

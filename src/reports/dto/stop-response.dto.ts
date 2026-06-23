@@ -59,7 +59,14 @@ export class StopResponseDto {
   endOdometer?: number;
 
   /**
-   * Razón del stop: 'ignition_off' (motor apagado) | 'no_movement' (encendido sin movimiento) | 'parking'
+   * Razón del stop: 'ignition_off' (motor apagado) | 'no_movement' (encendido sin movimiento) | 'gap' | 'parking'
    */
   reason?: string;
+
+  /**
+   * true si la parada está EN CURSO (sin cerrar) al momento de la consulta.
+   * En ese caso endTime/duration se calcularon hasta el fin del período (o ahora),
+   * no representan un cierre real.
+   */
+  isActive?: boolean;
 }

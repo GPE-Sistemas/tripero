@@ -506,50 +506,46 @@ export class PositionProcessorService {
         }
       }
 
-      // Iniciar stop (DESPUÉS de finalizar el anterior para evitar race conditions)
+      // Iniciar stop (DESPUÉS de finalizar el anterior para evitar race conditions).
+      // IMPORTANTE: usar los valores que ya computó la state-machine (currentStopId, stopStartTime,
+      // stopStartLat/Lon, stopReason). Así respeta el backdate de 'gap' (parada nocturna) y la razón
+      // correcta (IDLE→no_movement), y el stopId coincide con el del stop:completed.
       if (actions.startStop) {
-        // Generar ID único para el stop
-        const stopId = `stop_${position.deviceId}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-
-        // Determinar razón del stop
-        let reason: 'ignition_off' | 'no_movement' | 'parking' = 'no_movement';
-        if (!position.ignition) {
-          reason = 'ignition_off';
-        } else if (position.speed === 0) {
-          reason = 'parking';
-        }
-
-        // Guardar metadata del position o usar metadata del trip si existe
-        const stopMetadata = position.metadata || updatedState.tripMetadata;
+        const stopId =
+          updatedState.currentStopId ||
+          `stop_${position.deviceId}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        const reason = updatedState.stopReason || 'no_movement';
+        const startMs = updatedState.stopStartTime ?? position.timestamp;
+        const stopLat = updatedState.stopStartLat ?? position.latitude;
+        const stopLon = updatedState.stopStartLon ?? position.longitude;
+        const stopMetadata =
+          updatedState.stopMetadata || position.metadata || updatedState.tripMetadata;
 
         const event: IStopStartedEvent = {
           stopId,
           tripId: updatedState.currentTripId,
           deviceId: position.deviceId,
-          startTime: new Date(position.timestamp).toISOString(),
+          startTime: new Date(startMs).toISOString(),
           location: {
             type: 'Point',
-            coordinates: [position.longitude, position.latitude],
+            coordinates: [stopLon, stopLat],
           },
           reason,
-          currentState: 'IDLE', // Siempre IDLE al iniciar stop
+          currentState: 'IDLE',
           odometer: Math.round(displayOdometer),
           metadata: stopMetadata,
         };
 
         await this.eventPublisher.publishStopStarted(event);
 
-        // Guardar info del stop en el estado para cuando se complete
+        // La state-machine ya seteó currentStopId/stopStartTime/etc.; solo persistimos metadata.
         updatedState.currentStopId = stopId;
-        updatedState.stopStartTime = position.timestamp;
-        updatedState.stopStartLat = position.latitude;
-        updatedState.stopStartLon = position.longitude;
-        updatedState.stopReason = reason;
         updatedState.stopMetadata = stopMetadata;
         await this.deviceState.saveDeviceState(updatedState);
 
         this.logger.debug(
-          `Stop ${stopId} started for device ${position.deviceId} (reason: ${reason})`,
+          `Stop ${stopId} started for device ${position.deviceId} ` +
+            `(reason: ${reason}, start: ${new Date(startMs).toISOString()})`,
         );
       }
     } catch (error) {

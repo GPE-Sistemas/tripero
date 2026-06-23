@@ -58,7 +58,7 @@ export interface IStateTransitionResult {
     startTime: number;
     startLat: number;
     startLon: number;
-    reason?: 'ignition_off' | 'no_movement' | 'parking';
+    reason?: 'ignition_off' | 'no_movement' | 'gap' | 'parking';
     metadata?: Record<string, any>;
   };
 
@@ -149,6 +149,12 @@ export class StateMachineService {
     updatedState: IDeviceMotionState,
     actions: IStateTransitionResult['actions'],
     overnightGap?: IStateTransitionResult['overnightGap'],
+    gapOverride?: {
+      // El trip cerrado por gap termina al cortarse el reporte (no en la reanudación).
+      tripEnd?: { endTime: number; endLat: number; endLon: number };
+      // El stop de "gap" (no-data) arranca backdateado al inicio del silencio.
+      stopStart?: { time: number; lat: number; lon: number; reason: 'gap' };
+    },
   ): IStateTransitionResult {
     // Snapshot del trip anterior ANTES de inicializar el nuevo (cierre+inicio simultáneos)
     let previousTrip: IStateTransitionResult['previousTrip'] = undefined;
@@ -174,7 +180,10 @@ export class StateMachineService {
     // stopStartTime. Si el cierre no es por una parada (p. ej. gap nocturno en movimiento sin
     // stop), queda undefined y position-processor usa lastTimestamp.
     let tripClosure: IStateTransitionResult['tripClosure'] = undefined;
-    if (
+    if (gapOverride?.tripEnd && (actions.endTrip || actions.discardTrip)) {
+      // Gap nocturno: el trip termina al cortarse el reporte (última posición conocida).
+      tripClosure = gapOverride.tripEnd;
+    } else if (
       (actions.endTrip || actions.discardTrip) &&
       updatedState.currentStopId &&
       updatedState.stopStartTime !== undefined
@@ -240,14 +249,15 @@ export class StateMachineService {
       }
     }
 
-    // Inicializar stop si es necesario
+    // Inicializar stop si es necesario.
+    // gapOverride.stopStart: stop de "gap" (no-data) backdateado al inicio del silencio.
     if (actions.startStop) {
-      const stopReason = this.determineStopReason(newState, position);
+      const ss = gapOverride?.stopStart;
       updatedState.currentStopId = this.generateStopId(position.deviceId);
-      updatedState.stopStartTime = position.timestamp;
-      updatedState.stopStartLat = position.latitude;
-      updatedState.stopStartLon = position.longitude;
-      updatedState.stopReason = stopReason;
+      updatedState.stopStartTime = ss?.time ?? position.timestamp;
+      updatedState.stopStartLat = ss?.lat ?? position.latitude;
+      updatedState.stopStartLon = ss?.lon ?? position.longitude;
+      updatedState.stopReason = ss?.reason ?? this.determineStopReason(newState, position);
     }
 
     return {
@@ -389,10 +399,19 @@ export class StateMachineService {
       currentState.state === MotionState.STOPPED ||
       currentState.state === MotionState.IDLE;
 
+    // El promedio (speedAvg30s) queda OBSOLETO tras un gap grande: refleja el último tramo
+    // reportado (p. ej. manejando antes de un silencio nocturno), no el instante actual. Con el
+    // MISMO cutoff que effectiveSpeed (dt>300s) se descarta el avg viejo y se decide por la
+    // velocidad efectiva instantánea. Sin esto, un auto que reaparece detenido tras un gap largo
+    // queda "MOVING" por el avg stale (cae en `return currentState.state`) → nunca pasa a
+    // STOPPED/IDLE y no se detecta la parada nocturna (no-data gap).
+    const dtSec = (position.timestamp - currentState.lastTimestamp) / 1000;
+    const avgSpeed =
+      dtSec > 300 ? effSpeed : (currentState.speedAvg30s ?? effSpeed);
+
     if (!useIgnition) {
       // Motion-only: decidir solo por velocidad
       const isMoving = effSpeed >= this.thresholds.minMovingSpeed;
-      const avgSpeed = currentState.speedAvg30s ?? effSpeed;
       const isMovingByAvg = avgSpeed >= this.thresholds.minMovingSpeed;
 
       // Reanudación responsiva: si venimos de detenido y hay movimiento instantáneo claro,
@@ -411,7 +430,6 @@ export class StateMachineService {
     // vehículo se mueve). No forzar STOPPED — tratarlo como MOVING. Evita "paradas" de
     // ignition_off mientras el auto va a 90 km/h.
     if (!position.ignition) {
-      const avgSpeed = currentState.speedAvg30s ?? effSpeed;
       if (
         effSpeed >= this.thresholds.minMovingSpeed &&
         avgSpeed >= this.thresholds.minMovingSpeed
@@ -423,7 +441,6 @@ export class StateMachineService {
 
     // Ignición ON - evaluar velocidad
     const isMoving = effSpeed >= this.thresholds.minMovingSpeed;
-    const avgSpeed = currentState.speedAvg30s ?? effSpeed;
     const isMovingByAvg = avgSpeed >= this.thresholds.minMovingSpeed;
 
     // Reanudación responsiva desde detenido (ver nota en la rama motion-only).
@@ -727,26 +744,22 @@ export class StateMachineService {
       actions.endStop = true;
     }
 
-    // IDLE → STOPPED: Finalizar stop actual e iniciar nuevo stop por ignición OFF
+    // IDLE ↔ STOPPED: el vehículo SIGUE detenido (ambos estados son vel < minMovingSpeed,
+    // no hubo movimiento). NO fragmentar la parada por toggles de ignición (motor que se
+    // prende/apaga estando estacionado): se mantiene el MISMO stop abierto.
+    // Antes cada cambio de contacto cerraba y abría un stop nuevo → una parada continua en
+    // el mismo lugar quedaba partida en varios stops (no_movement/ignition_off alternados).
+    // La parada solo se cierra cuando el vehículo se MUEVE (IDLE/STOPPED → MOVING).
+    // Si por algún motivo no había stop abierto, se abre uno.
     if (
-      previousState === MotionState.IDLE &&
-      newState === MotionState.STOPPED
+      (previousState === MotionState.IDLE &&
+        newState === MotionState.STOPPED) ||
+      (previousState === MotionState.STOPPED && newState === MotionState.IDLE)
     ) {
-      if (updatedState.currentStopId) {
-        actions.endStop = true;
+      if (!updatedState.currentStopId) {
+        actions.startStop = true;
       }
-      actions.startStop = true;
-    }
-
-    // STOPPED → IDLE: Finalizar stop de ignición e iniciar stop de IDLE
-    if (
-      previousState === MotionState.STOPPED &&
-      newState === MotionState.IDLE
-    ) {
-      if (updatedState.currentStopId) {
-        actions.endStop = true;
-      }
-      actions.startStop = true;
+      // Si ya hay stop, no se setean endStop/startStop → se preserva la parada en curso.
     }
 
     // MOVING: Actualizar trip en curso
@@ -877,6 +890,18 @@ export class StateMachineService {
       updatedState,
     );
 
+    // Datos del inicio del silencio (última posición conocida antes del gap).
+    const gapStartMs = currentState.lastTimestamp;
+    const gapStartLat = currentState.lastLat;
+    const gapStartLon = currentState.lastLon;
+    const hadOpenStop = !!currentState.currentStopId;
+    let gapOverride:
+      | {
+          tripEnd?: { endTime: number; endLat: number; endLon: number };
+          stopStart?: { time: number; lat: number; lon: number; reason: 'gap' };
+        }
+      | undefined = undefined;
+
     // Gap nocturno: forzar cierre del trip aunque no haya transición a STOPPED
     // (cubre trackers que se apagan sin reportar el cambio de estado).
     if (
@@ -886,24 +911,73 @@ export class StateMachineService {
       !actions.discardTrip &&
       !actions.startTrip
     ) {
-      const tripDuration =
-        (updatedState.lastTimestamp - (updatedState.tripStartTime || 0)) / 1000;
+      const tripDuration = (gapStartMs - (updatedState.tripStartTime || 0)) / 1000;
       const tripDistance = updatedState.tripDistance || 0;
       if (
         tripDuration >= this.thresholds.minTripDuration &&
         tripDistance >= this.thresholds.minTripDistance
       ) {
         actions.endTrip = true;
-        this.logger.log(
-          `Closing trip for device ${position.deviceId} due to overnight gap: ${Math.round(gapDuration)}s`,
-        );
       } else {
         actions.discardTrip = true;
+      }
+    }
+
+    if (isOvernightGap) {
+      // El trip cerrado por el gap termina al cortarse el reporte, no en la reanudación.
+      if (actions.endTrip || actions.discardTrip) {
+        gapOverride = {
+          tripEnd: {
+            endTime: gapStartMs,
+            endLat: gapStartLat,
+            endLon: gapStartLon,
+          },
+        };
+      }
+      // No-data gap = parada (estilo Traccar `minimalNoDataDuration`): si NO había stop abierto
+      // (el vehículo venía en movimiento) y reanuda detenido, crear un stop 'gap' backdateado
+      // al inicio del silencio. Así el período sin datos queda como PARADA, no como hueco.
+      // (Si ya había un stop abierto, se preserva a través del gap por la lógica normal.)
+      if (
+        !hadOpenStop &&
+        (newState === MotionState.STOPPED || newState === MotionState.IDLE)
+      ) {
+        // Solo cuenta como parada si REAPARECE CERCA del último punto (el vehículo se quedó
+        // quieto durante el silencio). Si reaparece lejos, se movió mientras no reportaba →
+        // no se puede afirmar que estuvo detenido → no se crea parada (queda gap/hueco).
+        const GAP_PARKING_MAX_MOVE_M = 100;
+        const moveDist = this.calculateDistance(
+          gapStartLat,
+          gapStartLon,
+          position.latitude,
+          position.longitude,
+        );
+        if (moveDist <= GAP_PARKING_MAX_MOVE_M) {
+          actions.startStop = true;
+          gapOverride = {
+            ...(gapOverride || {}),
+            stopStart: {
+              time: gapStartMs,
+              lat: gapStartLat,
+              lon: gapStartLon,
+              reason: 'gap',
+            },
+          };
+          this.logger.log(
+            `No-data gap stop for device ${position.deviceId}: ${Math.round(gapDuration)}s ` +
+              `desde ${new Date(gapStartMs).toISOString()} (reaparece a ${Math.round(moveDist)}m)`,
+          );
+        } else {
+          this.logger.log(
+            `No-data gap for device ${position.deviceId}: ${Math.round(gapDuration)}s pero reaparece ` +
+              `a ${Math.round(moveDist)}m (>${GAP_PARKING_MAX_MOVE_M}m) → se movió durante el silencio, sin parada`,
+          );
+        }
       }
     } else {
       this.logger.debug(
         `Large gap for device ${position.deviceId}: ${Math.round(gapDuration)}s ` +
-          `(${previousState} → ${newState}); stop/trip preservados sin fragmentar`,
+          `(${previousState} → ${newState}); preservado sin fragmentar`,
       );
     }
 
@@ -916,6 +990,7 @@ export class StateMachineService {
       isOvernightGap
         ? { detected: true, durationSeconds: gapDuration }
         : undefined,
+      gapOverride,
     );
   }
 
