@@ -9,7 +9,11 @@ import { StopRepository } from '../../database/repositories/stop.repository';
 import { DeviceStateService } from './device-state.service';
 import { TrackerStateService } from './tracker-state.service';
 import { TripQualityAnalyzerService } from './trip-quality-analyzer.service';
-import { DEFAULT_THRESHOLDS } from '../models';
+import {
+  DEFAULT_THRESHOLDS,
+  MotionState,
+  IDeviceMotionState,
+} from '../models';
 import { Trip } from '../../database/entities/trip.entity';
 import { ORPHAN_CLEANUP_ENABLED } from '../../env';
 
@@ -465,11 +469,33 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
             state.lastUpdate < cutoffTime
           ) {
             this.logger.log(
-              `Cleaning stale Redis state for device ${deviceId} ` +
-                `(last update: ${new Date(state.lastUpdate).toISOString()})`,
+              `Resetting stale Redis state for device ${deviceId} ` +
+                `(last update: ${new Date(state.lastUpdate).toISOString()}) ` +
+                `— preservando última posición para detección de gap al reanudar`,
             );
 
-            await this.deviceStateService.deleteDeviceState(deviceId);
+            // Reset PARCIAL (no borrar): se cierra el trip/stop activo (lo hace el
+            // cierre de huérfanos), pero se PRESERVA la última posición conocida
+            // (lastTimestamp/lat/lon). Así, cuando el device reanude tras un silencio
+            // largo (p. ej. la noche), processPosition encuentra el estado y
+            // handleLargeGap mide el gap y crea la parada nocturna. Borrar el estado
+            // completo hacía que la reanudación se tratara como "primera posición"
+            // (handleFirstPosition) y se perdiera el gap.
+            const preserved: IDeviceMotionState = {
+              deviceId: state.deviceId,
+              state: MotionState.STOPPED,
+              stateStartTime: state.lastTimestamp,
+              lastTimestamp: state.lastTimestamp,
+              lastLat: state.lastLat,
+              lastLon: state.lastLon,
+              lastSpeed: 0,
+              lastIgnition: state.lastIgnition ?? false,
+              lastUpdate: state.lastUpdate,
+              version: (state.version || 0) + 1,
+              // trip/stop activos y buffers quedan limpios (undefined) → sin basura,
+              // pero el device sigue "conocido" para el cálculo del gap.
+            };
+            await this.deviceStateService.saveDeviceState(preserved);
             cleanedCount++;
           }
         } catch (error) {
