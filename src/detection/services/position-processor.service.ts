@@ -548,6 +548,51 @@ export class PositionProcessorService {
             `(reason: ${reason}, start: ${new Date(startMs).toISOString()})`,
         );
       }
+
+      // Parada 'gap' CERRADA: el vehículo reapareció CERCA tras un silencio largo pero ya
+      // EN MOVIMIENTO. El silencio fue una parada completa → se publica stop:started y
+      // stop:completed de una sola vez (start = inicio del silencio, end = reanudación).
+      // El trip nuevo ya se inició por separado (startTrip) en la misma transición.
+      if (result.closedGapStop) {
+        const g = result.closedGapStop;
+        const gapStopId = `stop_${position.deviceId}_${g.startTime}_gap`;
+        const gapDurationSec = Math.max(
+          0,
+          Math.round((g.endTime - g.startTime) / 1000),
+        );
+        const startedEvent: IStopStartedEvent = {
+          stopId: gapStopId,
+          tripId: undefined,
+          deviceId: position.deviceId,
+          startTime: new Date(g.startTime).toISOString(),
+          location: { type: 'Point', coordinates: [g.startLon, g.startLat] },
+          reason: 'gap',
+          currentState: 'MOVING',
+          odometer: Math.round(displayOdometer),
+          metadata: position.metadata,
+        };
+        await this.eventPublisher.publishStopStarted(startedEvent);
+
+        const completedEvent: IStopCompletedEvent = {
+          stopId: gapStopId,
+          tripId: undefined,
+          deviceId: position.deviceId,
+          startTime: new Date(g.startTime).toISOString(),
+          endTime: new Date(g.endTime).toISOString(),
+          duration: gapDurationSec,
+          location: { type: 'Point', coordinates: [g.startLon, g.startLat] },
+          reason: 'gap',
+          currentState: 'MOVING',
+          odometer: Math.round(displayOdometer),
+          metadata: { closureType: 'gap' },
+        };
+        await this.eventPublisher.publishStopCompleted(completedEvent);
+
+        this.logger.log(
+          `Closed gap stop ${gapStopId} for device ${position.deviceId}: ` +
+            `${gapDurationSec}s (${new Date(g.startTime).toISOString()} → ${new Date(g.endTime).toISOString()})`,
+        );
+      }
     } catch (error) {
       this.logger.error(
         `Error executing actions for device ${position.deviceId}`,

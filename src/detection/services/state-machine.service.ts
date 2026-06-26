@@ -76,6 +76,19 @@ export interface IStateTransitionResult {
     endLat: number;
     endLon: number;
   };
+
+  // Parada 'gap' YA cerrada: el vehículo reaparece CERCA tras un silencio largo pero
+  // ya EN MOVIMIENTO. El silencio fue una parada (start = inicio del silencio,
+  // end = reanudación) y el trip nuevo arranca en la reanudación. position-processor
+  // publica stop:started + stop:completed de una sola vez para esta parada.
+  closedGapStop?: {
+    startTime: number;
+    startLat: number;
+    startLon: number;
+    endTime: number;
+    endLat: number;
+    endLon: number;
+  };
 }
 
 @Injectable()
@@ -154,6 +167,15 @@ export class StateMachineService {
       tripEnd?: { endTime: number; endLat: number; endLon: number };
       // El stop de "gap" (no-data) arranca backdateado al inicio del silencio.
       stopStart?: { time: number; lat: number; lon: number; reason: 'gap' };
+      // Parada 'gap' ya cerrada (reanuda en movimiento): silencio completo.
+      closedGapStop?: {
+        startTime: number;
+        startLat: number;
+        startLon: number;
+        endTime: number;
+        endLat: number;
+        endLon: number;
+      };
     },
   ): IStateTransitionResult {
     // Snapshot del trip anterior ANTES de inicializar el nuevo (cierre+inicio simultáneos)
@@ -271,6 +293,7 @@ export class StateMachineService {
       previousStop,
       overnightGap,
       tripClosure,
+      closedGapStop: gapOverride?.closedGapStop,
     };
   }
 
@@ -899,6 +922,14 @@ export class StateMachineService {
       | {
           tripEnd?: { endTime: number; endLat: number; endLon: number };
           stopStart?: { time: number; lat: number; lon: number; reason: 'gap' };
+          closedGapStop?: {
+            startTime: number;
+            startLat: number;
+            startLon: number;
+            endTime: number;
+            endLat: number;
+            endLon: number;
+          };
         }
       | undefined = undefined;
 
@@ -938,10 +969,7 @@ export class StateMachineService {
       // (el vehículo venía en movimiento) y reanuda detenido, crear un stop 'gap' backdateado
       // al inicio del silencio. Así el período sin datos queda como PARADA, no como hueco.
       // (Si ya había un stop abierto, se preserva a través del gap por la lógica normal.)
-      if (
-        !hadOpenStop &&
-        (newState === MotionState.STOPPED || newState === MotionState.IDLE)
-      ) {
+      if (!hadOpenStop) {
         // Solo cuenta como parada si REAPARECE CERCA del último punto (el vehículo se quedó
         // quieto durante el silencio). Si reaparece lejos, se movió mientras no reportaba →
         // no se puede afirmar que estuvo detenido → no se crea parada (queda gap/hueco).
@@ -953,19 +981,41 @@ export class StateMachineService {
           position.longitude,
         );
         if (moveDist <= GAP_PARKING_MAX_MOVE_M) {
-          actions.startStop = true;
-          gapOverride = {
-            ...(gapOverride || {}),
-            stopStart: {
-              time: gapStartMs,
-              lat: gapStartLat,
-              lon: gapStartLon,
-              reason: 'gap',
-            },
-          };
+          if (
+            newState === MotionState.STOPPED ||
+            newState === MotionState.IDLE
+          ) {
+            // Reanuda DETENIDO: parada 'gap' ABIERTA backdateada al inicio del silencio;
+            // se cerrará cuando el vehículo vuelva a moverse.
+            actions.startStop = true;
+            gapOverride = {
+              ...(gapOverride || {}),
+              stopStart: {
+                time: gapStartMs,
+                lat: gapStartLat,
+                lon: gapStartLon,
+                reason: 'gap',
+              },
+            };
+          } else {
+            // Reanuda EN MOVIMIENTO: el silencio fue una parada completa. Se emite una
+            // parada 'gap' CERRADA (inicio del silencio → reanudación). El trip nuevo
+            // arranca en la reanudación por la transición normal a MOVING (startTrip).
+            gapOverride = {
+              ...(gapOverride || {}),
+              closedGapStop: {
+                startTime: gapStartMs,
+                startLat: gapStartLat,
+                startLon: gapStartLon,
+                endTime: position.timestamp,
+                endLat: position.latitude,
+                endLon: position.longitude,
+              },
+            };
+          }
           this.logger.log(
             `No-data gap stop for device ${position.deviceId}: ${Math.round(gapDuration)}s ` +
-              `desde ${new Date(gapStartMs).toISOString()} (reaparece a ${Math.round(moveDist)}m)`,
+              `desde ${new Date(gapStartMs).toISOString()} (reaparece a ${Math.round(moveDist)}m, ${newState})`,
           );
         } else {
           this.logger.log(
