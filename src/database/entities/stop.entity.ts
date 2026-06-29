@@ -9,6 +9,11 @@ import {
 @Entity('stops')
 @Index(['trip_id', 'start_time'])
 @Index(['id_activo', 'start_time'])
+// Para consultas de solapamiento por rango: el predicado selectivo es
+// end_time >= fromDate (la ventana), no start_time (que con start_time <= now
+// matchea TODO el histórico del activo). Sin este índice la query escanea todas
+// las paradas del vehículo.
+@Index(['id_activo', 'end_time'])
 @Index(['start_time'])
 @Index(['id', 'id_activo']) // Para búsquedas por ID + validación de device
 export class Stop {

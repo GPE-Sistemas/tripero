@@ -56,6 +56,9 @@ CREATE INDEX IF NOT EXISTS idx_stops_start_time ON stops(start_time);
 CREATE INDEX IF NOT EXISTS idx_stops_id_activo ON stops(id_activo);
 CREATE INDEX IF NOT EXISTS idx_stops_is_active ON stops(is_active);
 CREATE INDEX IF NOT EXISTS idx_stops_id_activo_start_time ON stops(id_activo, start_time);
+-- Para consultas de solapamiento por rango (getStops): el predicado selectivo
+-- es end_time >= fromDate. Sin este índice se escanea todo el histórico del activo.
+CREATE INDEX IF NOT EXISTS idx_stops_id_activo_end_time ON stops(id_activo, end_time);
 CREATE INDEX IF NOT EXISTS idx_stops_trip_start ON stops(trip_id, start_time);
 
 -- Tabla tracker_state
