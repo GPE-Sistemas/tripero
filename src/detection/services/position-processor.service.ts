@@ -13,6 +13,7 @@ import { DeviceStateService } from './device-state.service';
 import { EventPublisherService } from './event-publisher.service';
 import { TrackerStateService } from './tracker-state.service';
 import { TripRepository } from '../../database/repositories/trip.repository';
+import { StopRepository } from '../../database/repositories/stop.repository';
 
 /**
  * Servicio principal de procesamiento de posiciones GPS
@@ -33,6 +34,9 @@ export class PositionProcessorService {
 
   // Cache para throttling de updates de trips (tripId -> last update timestamp)
   private lastTripUpdateTime = new Map<string, number>();
+  // Idem para stops (stopId -> last update timestamp). Mantiene "viva" la parada en curso
+  // ante el orphan cleanup mientras el tracker sigue reportando.
+  private lastStopUpdateTime = new Map<string, number>();
   private readonly TRIP_UPDATE_THROTTLE_MS = 60000; // 60 segundos
 
   constructor(
@@ -41,6 +45,7 @@ export class PositionProcessorService {
     private readonly eventPublisher: EventPublisherService,
     private readonly trackerState: TrackerStateService,
     private readonly tripRepository: TripRepository,
+    private readonly stopRepository: StopRepository,
   ) {
     // Log de métricas cada minuto
     setInterval(() => {
@@ -58,6 +63,11 @@ export class PositionProcessorService {
       for (const [tripId, timestamp] of this.lastTripUpdateTime.entries()) {
         if (timestamp < cutoff) {
           this.lastTripUpdateTime.delete(tripId);
+        }
+      }
+      for (const [stopId, timestamp] of this.lastStopUpdateTime.entries()) {
+        if (timestamp < cutoff) {
+          this.lastStopUpdateTime.delete(stopId);
         }
       }
     }, 600000);
@@ -120,6 +130,11 @@ export class PositionProcessorService {
       // 8. Actualizar updated_at del trip si hay uno activo (throttled)
       // Esto permite que el cleanup detecte trips huérfanos cuando el tracker deja de reportar
       await this.updateTripTimestamp(result.updatedState.currentTripId);
+
+      // 8b. Idem para la parada en curso: refrescar su updated_at mientras el tracker reporta.
+      // Sin esto, una parada larga (vehículo estacionado) nunca refresca updated_at y el
+      // orphan cleanup la cierra a los ~30min con duración ~0, haciéndola desaparecer del mapa.
+      await this.updateStopTimestamp(result.updatedState.currentStopId);
 
       this.processedCount++;
 
@@ -743,6 +758,38 @@ export class PositionProcessorService {
       // No lanzar error, solo loguearlo - no queremos que falle el procesamiento de posiciones
       this.logger.error(
         `Error updating trip timestamp for ${tripId}: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Actualiza el timestamp updated_at del stop en la BD (con throttling).
+   * Mantiene "viva" la parada en curso para que el orphan cleanup NO la cierre como
+   * huérfana mientras el tracker sigue reportando (vehículo estacionado pero device vivo).
+   * Si el tracker deja de reportar, updated_at deja de avanzar y el cleanup la cierra
+   * correctamente al último heartbeat.
+   */
+  private async updateStopTimestamp(
+    stopId: string | undefined,
+  ): Promise<void> {
+    if (!stopId) return;
+
+    try {
+      const now = Date.now();
+      const lastUpdate = this.lastStopUpdateTime.get(stopId);
+
+      // Solo actualizar si pasaron más de 60 segundos desde el último update
+      if (!lastUpdate || now - lastUpdate > this.TRIP_UPDATE_THROTTLE_MS) {
+        await this.stopRepository.touchStop(stopId);
+        this.lastStopUpdateTime.set(stopId, now);
+        this.logger.debug(
+          `Updated stop ${stopId} timestamp (last update was ${lastUpdate ? Math.round((now - lastUpdate) / 1000) : 'never'}s ago)`,
+        );
+      }
+    } catch (error) {
+      // No lanzar error, solo loguearlo - no queremos que falle el procesamiento de posiciones
+      this.logger.error(
+        `Error updating stop timestamp for ${stopId}: ${error.message}`,
       );
     }
   }

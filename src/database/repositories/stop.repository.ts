@@ -71,6 +71,17 @@ export class StopRepository {
     return await this.stopRepo.save(stop);
   }
 
+  /**
+   * Actualiza el timestamp updated_at del stop para indicar actividad reciente.
+   * Espeja a TripRepository.touchTrip: mientras el tracker sigue reportando (vehículo
+   * estacionado pero device vivo), refresca updated_at para que el orphan cleanup NO
+   * cierre como huérfana una parada EN CURSO. Si el tracker deja de reportar, updated_at
+   * deja de avanzar y el cleanup la cierra al último heartbeat (≈ último reporte real).
+   */
+  async touchStop(id: string): Promise<void> {
+    await this.stopRepo.update({ id }, { updated_at: new Date() });
+  }
+
   async findByTrip(trip_id: string): Promise<Stop[]> {
     return await this.stopRepo.find({
       where: { trip_id },
