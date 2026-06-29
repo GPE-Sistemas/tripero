@@ -229,13 +229,16 @@ export class ReportsService {
     // para usar el query builder
     const stopRepo = (this.stopRepository as any).stopRepo;
 
-    // NOTA: a diferencia de trips, NO filtramos is_active=false: incluimos paradas en curso
-    // cuyo inicio cae en el rango (parada aún no terminada al momento de la consulta).
+    // NOTA: a diferencia de trips, NO filtramos is_active=false: incluimos paradas en curso.
+    // Solapamiento de intervalos (no solo "inicio dentro del rango"): la parada se cruza con
+    // [fromDate, toDate] si empezó antes del fin del rango y terminó después del inicio o sigue
+    // en curso. Así se incluyen paradas que comenzaron antes de fromDate y terminaron dentro,
+    // y paradas aún no terminadas (p. ej. cuando toDate es la hora actual).
     const queryBuilder = stopRepo
       .createQueryBuilder('stop')
-      .where('stop.start_time BETWEEN :fromDate AND :toDate', {
+      .where('stop.start_time <= :toDate', { toDate })
+      .andWhere('(stop.end_time >= :fromDate OR stop.end_time IS NULL)', {
         fromDate,
-        toDate,
       });
 
     // Filtro por deviceId

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThanOrEqual } from 'typeorm';
+import { Repository, LessThanOrEqual, SelectQueryBuilder } from 'typeorm';
 import { Stop } from '../entities/stop.entity';
 
 export interface ICreateStopData {
@@ -84,20 +84,13 @@ export class StopRepository {
     endTime: Date,
     includeActive: boolean = false,
   ): Promise<Stop[]> {
-    const where: any = {
-      id_activo,
-      start_time: Between(startTime, endTime),
-    };
+    const qb = this.stopRepo
+      .createQueryBuilder('stop')
+      .where('stop.id_activo = :id_activo', { id_activo });
 
-    // Por defecto solo devolver stops completados
-    if (!includeActive) {
-      where.is_active = false;
-    }
+    this.aplicarSolapamientoRango(qb, startTime, endTime, includeActive);
 
-    return await this.stopRepo.find({
-      where,
-      order: { start_time: 'DESC' },
-    });
+    return await qb.orderBy('stop.start_time', 'DESC').getMany();
   }
 
   async findByTimeRange(
@@ -105,19 +98,36 @@ export class StopRepository {
     endTime: Date,
     includeActive: boolean = false,
   ): Promise<Stop[]> {
-    const where: any = {
-      start_time: Between(startTime, endTime),
-    };
+    const qb = this.stopRepo.createQueryBuilder('stop');
+
+    this.aplicarSolapamientoRango(qb, startTime, endTime, includeActive);
+
+    return await qb.orderBy('stop.start_time', 'DESC').getMany();
+  }
+
+  /**
+   * Filtra paradas que se SOLAPAN con el rango [startTime, endTime], en vez de
+   * solo las que inician dentro del rango. Una parada se cruza con el período si:
+   *   - empezó antes del fin del rango (start_time <= endTime), y
+   *   - terminó después del inicio del rango (end_time >= startTime) o sigue en curso (end_time IS NULL).
+   * Así se incluyen paradas que comenzaron antes de startTime y terminaron dentro,
+   * y paradas aún no terminadas (p. ej. cuando endTime es la hora actual).
+   */
+  private aplicarSolapamientoRango(
+    qb: SelectQueryBuilder<Stop>,
+    startTime: Date,
+    endTime: Date,
+    includeActive: boolean,
+  ): void {
+    qb.andWhere('stop.start_time <= :endTime', { endTime }).andWhere(
+      '(stop.end_time >= :startTime OR stop.end_time IS NULL)',
+      { startTime },
+    );
 
     // Por defecto solo devolver stops completados
     if (!includeActive) {
-      where.is_active = false;
+      qb.andWhere('stop.is_active = false');
     }
-
-    return await this.stopRepo.find({
-      where,
-      order: { start_time: 'DESC' },
-    });
   }
 
   async closeStop(
