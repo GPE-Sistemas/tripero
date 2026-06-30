@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { RedisService } from '../../auxiliares/redis/redis.service';
+import { GeocodeClientService } from '../../auxiliares/geocode/geocode-client.service';
 import { TripRepository } from '../../database/repositories/trip.repository';
 import { DeviceEventQueueManager } from './device-event-queue.manager';
 import {
@@ -28,6 +29,7 @@ export class TripPersistenceService implements OnModuleInit {
     private readonly tripRepository: TripRepository,
     private readonly eventQueueManager: DeviceEventQueueManager,
     private readonly tripQualityAnalyzer: TripQualityAnalyzerService,
+    private readonly geocode: GeocodeClientService,
   ) {}
 
   /**
@@ -129,12 +131,16 @@ export class TripPersistenceService implements OnModuleInit {
       // Extraer lat/lon del formato GeoJSON [lon, lat]
       const [longitude, latitude] = event.startLocation.coordinates;
 
+      // Geocodificar el inicio una sola vez (al crear el trip), best-effort.
+      const start_address = await this.geocode.reverse(latitude, longitude);
+
       await this.tripRepository.create({
         id: event.tripId,
         id_activo: event.deviceId,
         start_time: new Date(event.startTime),
         start_lat: latitude,
         start_lon: longitude,
+        start_address,
         detection_method: event.detectionMethod,
         metadata: event.metadata,
       });
@@ -207,11 +213,15 @@ export class TripPersistenceService implements OnModuleInit {
       // La distancia final es la que viene del evento (ya corregida por ruido GPS)
       const finalDistance = event.distance;
 
+      // Geocodificar el fin una sola vez (al completar el trip), best-effort.
+      const end_address = await this.geocode.reverse(endLatitude, endLongitude);
+
       // Actualizar con datos finales y métricas de calidad
       await this.tripRepository.update(trip.id, {
         end_time: new Date(event.endTime),
         end_lat: endLatitude,
         end_lon: endLongitude,
+        end_address,
         distance: finalDistance,
         distance_original: tripMetrics.originalDistance || event.distance,
         distance_linear: qualityAnalysis.linearDistance,

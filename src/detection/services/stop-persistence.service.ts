@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { RedisService } from '../../auxiliares/redis/redis.service';
+import { GeocodeClientService } from '../../auxiliares/geocode/geocode-client.service';
 import { StopRepository } from '../../database/repositories/stop.repository';
 import { DeviceEventQueueManager } from './device-event-queue.manager';
 import {
@@ -24,6 +25,7 @@ export class StopPersistenceService implements OnModuleInit {
     private readonly redisService: RedisService,
     private readonly stopRepository: StopRepository,
     private readonly eventQueueManager: DeviceEventQueueManager,
+    private readonly geocode: GeocodeClientService,
   ) {}
 
   /**
@@ -118,12 +120,17 @@ export class StopPersistenceService implements OnModuleInit {
       // Extraer lat/lon del formato GeoJSON [lon, lat]
       const [longitude, latitude] = event.location.coordinates;
 
+      // Geocodificar la dirección una sola vez (al crear el stop), best-effort.
+      // Así las lecturas (getStops) no geocodifican.
+      const address = await this.geocode.reverse(latitude, longitude);
+
       await this.stopRepository.create({
         id: event.stopId,
         id_activo: event.deviceId,
         start_time: new Date(event.startTime),
         latitude,
         longitude,
+        address,
         reason: event.reason,
         trip_id: event.tripId,
         start_odometer: event.odometer,

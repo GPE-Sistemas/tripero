@@ -44,6 +44,18 @@ export const IGNITION_EXPIRY_DAYS = parseInt(
   10,
 ); // Días sin ignition=true antes de caer a motion-only
 
+// Geocode (servicio EXTERNO de geocodificación inversa). Tripero guarda la
+// dirección de stops/trips al crearlos/completarlos (no en el path de lectura).
+// Genérico: no asume que sea gestión -> URL + PATH + API key configurables.
+// Si GEOCODE_URL está vacío, el geocoding queda deshabilitado (best-effort).
+export const GEOCODE_URL = process.env.GEOCODE_URL || '';
+export const GEOCODE_PATH = process.env.GEOCODE_PATH || '/geocode-cache/reverse';
+export const GEOCODE_APIKEY = process.env.GEOCODE_APIKEY || '';
+export const GEOCODE_TIMEOUT_MS = parseInt(
+  process.env.GEOCODE_TIMEOUT_MS || '4000',
+  10,
+);
+
 // Orphan cleanup
 // Permite desactivar el job de limpieza de trips/stops huérfanos.
 // Default: activo. Se desactiva con ORPHAN_CLEANUP_ENABLED=false (ej: instancia local

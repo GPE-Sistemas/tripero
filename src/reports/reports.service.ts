@@ -290,11 +290,11 @@ export class ReportsService {
       spentFuel: undefined, // TODO: calcular si hay sensores
       duration: trip.duration,
       startTime: trip.start_time.toISOString(),
-      startAddress: undefined, // Geocoding should be done by consuming service
+      startAddress: trip.start_address ?? undefined,
       startLat: trip.start_lat,
       startLon: trip.start_lon,
       endTime: trip.end_time?.toISOString() || trip.start_time.toISOString(),
-      endAddress: undefined, // Geocoding should be done by consuming service
+      endAddress: trip.end_address ?? undefined,
       endLat: trip.end_lat || trip.start_lat,
       endLon: trip.end_lon || trip.start_lon,
       driverUniqueId: undefined, // TODO: si se necesita
@@ -337,7 +337,9 @@ export class ReportsService {
         endTime,
         latitude: stop.latitude,
         longitude: stop.longitude,
-        address: undefined, // Geocoding should be done by consuming service
+        // Dirección geocodificada al crear el stop. El consumidor sólo
+        // geocodifica como fallback si viene vacía (datos legacy).
+        address: stop.address ?? undefined,
         engineHours: undefined, // TODO: si se necesita
         startOdometer: stop.start_odometer ?? undefined,
         endOdometer: stop.end_odometer ?? undefined,

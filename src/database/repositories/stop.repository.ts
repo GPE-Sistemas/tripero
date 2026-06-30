@@ -9,6 +9,7 @@ export interface ICreateStopData {
   start_time: Date;
   latitude: number;
   longitude: number;
+  address?: string | null;
   reason?: string;
   trip_id?: string;
   start_odometer?: number;

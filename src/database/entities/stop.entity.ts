@@ -43,6 +43,10 @@ export class Stop {
   @Column({ type: 'float8', name: 'longitude' })
   longitude: number;
 
+  // Dirección geocodificada al crear el stop (evita geocodificar en cada lectura).
+  @Column({ type: 'text', name: 'address', nullable: true })
+  address: string | null;
+
   @Column({ type: 'text', name: 'reason', default: 'ignition_off' })
   reason: string; // 'ignition_off' | 'no_movement' | 'parking'
 

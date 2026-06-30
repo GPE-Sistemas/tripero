@@ -61,11 +61,19 @@ export class Trip {
   @Column({ type: 'float8', name: 'start_lon' })
   start_lon: number;
 
+  // Dirección geocodificada del inicio (al crear el trip).
+  @Column({ type: 'text', name: 'start_address', nullable: true })
+  start_address: string | null;
+
   @Column({ type: 'float8', name: 'end_lat', nullable: true })
   end_lat: number | null;
 
   @Column({ type: 'float8', name: 'end_lon', nullable: true })
   end_lon: number | null;
+
+  // Dirección geocodificada del fin (al completar el trip).
+  @Column({ type: 'text', name: 'end_address', nullable: true })
+  end_address: string | null;
 
   @Column({ type: 'jsonb', name: 'route_points', default: '[]' })
   route_points: Array<{

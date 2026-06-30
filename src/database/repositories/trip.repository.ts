@@ -9,6 +9,7 @@ export interface ICreateTripData {
   start_time: Date;
   start_lat: number;
   start_lon: number;
+  start_address?: string | null;
   detection_method?: string;
   metadata?: Record<string, any>;
 }
@@ -17,6 +18,7 @@ export interface IUpdateTripData {
   end_time?: Date;
   end_lat?: number;
   end_lon?: number;
+  end_address?: string | null;
   distance?: number;
   distance_original?: number;
   distance_linear?: number;
