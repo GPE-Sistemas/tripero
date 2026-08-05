@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import Redis from 'ioredis';
 import Redlock, { ExecutionResult, Lock } from 'redlock';
 import {
@@ -11,10 +11,11 @@ import {
 import { LoggerService } from '../logger/logger.service';
 
 @Injectable()
-export class RedisService implements OnModuleInit {
+export class RedisService implements OnModuleInit, OnModuleDestroy {
   private logger = new LoggerService('RedisService');
   private client: Redis;
   private redlock: Redlock;
+  private ultimoError?: string;
   public ready = false;
   private readonly prefix = REDIS_KEY_PREFIX;
 
@@ -43,62 +44,89 @@ export class RedisService implements OnModuleInit {
     this.createClient();
   }
 
+  async onModuleDestroy() {
+    try {
+      await this.client.quit();
+    } catch {
+      this.client.disconnect();
+    }
+  }
+
   private createClient() {
+    // La reconexión la maneja ioredis con retryStrategy. No crear clientes
+    // nuevos a mano: cada cliente extra queda vivo reintentando por su cuenta,
+    // reinicia el contador de backoff en 1s y pisa el flag `ready` compartido.
     this.client = new Redis({
       host: REDIS_HOST,
       port: REDIS_PORT,
       db: REDIS_DB,
       password: REDIS_PASSWORD,
+      enableOfflineQueue: true, // los comandos se encolan durante el corte
+      maxRetriesPerRequest: 3, // la request falla rápido en vez de colgarse
+      connectTimeout: 10000,
       retryStrategy: (times) => {
-        const delay = Math.min(times * 1000, 30000);
-        this.logger.log(`Intentando reconectar a Redis en ${delay / 1000}s...`);
+        // Backoff exponencial con jitter, techo 30s
+        const base = Math.min(1000 * 2 ** Math.min(times, 5), 30000);
+        const delay = Math.round(base / 2 + Math.random() * (base / 2));
+        if (times === 1 || times % 10 === 0) {
+          this.logger.warn(
+            `Redis reconectando (intento ${times}), próximo en ${delay}ms`,
+          );
+        }
         return delay;
       },
     });
 
-    this.client.on('connect', () => {
-      this.logger.log(
-        `Redis conectado ${REDIS_HOST}:${REDIS_PORT} db ${REDIS_DB} prefix "${this.prefix}"`,
-      );
-      this.redlock = new Redlock([this.client]);
+    // Un solo Redlock por cliente: si se creaba dentro de 'connect' quedaba
+    // undefined mientras Redis estuviera caído y lockKey fallaba en silencio.
+    this.redlock = new Redlock([this.client], { retryCount: 0 });
+
+    // 'ready' (no 'connect'): recién ahí terminaron AUTH y SELECT de la db.
+    this.client.on('ready', () => {
+      this.ultimoError = undefined;
       this.ready = true;
+      this.logger.log(
+        `Redis listo ${REDIS_HOST}:${REDIS_PORT} db ${REDIS_DB} prefix "${this.prefix}"`,
+      );
     });
 
     this.client.on('error', (err) => {
-      this.logger.error('Error de Redis', err.message);
       this.ready = false;
+      // El mismo error se repite en cada intento: loguear sólo los cambios.
+      if (err.message !== this.ultimoError) {
+        this.ultimoError = err.message;
+        this.logger.error('Error de Redis', err.message);
+      }
     });
 
     this.client.on('close', () => {
-      this.logger.error('Redis cerrado');
       this.ready = false;
-      setTimeout(() => {
-        if (!this.ready) {
-          this.logger.log('Intentando reconectar a Redis (manual)...');
-          this.createClient();
-        }
-      }, 5000);
+    });
+
+    this.client.on('end', () => {
+      this.ready = false;
+      this.logger.error('Redis terminó sin más reintentos');
     });
   }
 
-  private async waitForConnection(): Promise<void> {
-    if (this.ready) return;
+  private async waitForConnection(timeoutMs = 5000): Promise<void> {
+    if (this.client.status === 'ready') return;
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Redis connection timeout'));
-      }, 10000);
-
-      const checkConnection = () => {
-        if (this.ready) {
-          clearTimeout(timeout);
-          resolve();
-        } else {
-          setTimeout(checkConnection, 100);
-        }
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.client.off('ready', onReady);
       };
+      const onReady = () => {
+        cleanup();
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Redis connection timeout'));
+      }, timeoutMs);
 
-      checkConnection();
+      this.client.once('ready', onReady);
     });
   }
 
@@ -272,11 +300,18 @@ export class RedisService implements OnModuleInit {
    * Útil para casos donde se necesita control manual del prefijo
    */
   createSubscriber(): Redis {
+    // ioredis re-suscribe los canales por su cuenta al reconectar, así que el
+    // llamador NO debe crear otro subscriber cuando la conexión se cierra:
+    // cada subscriber extra recibe una copia de cada mensaje.
     return new Redis({
       host: REDIS_HOST,
       port: REDIS_PORT,
       db: REDIS_DB,
       password: REDIS_PASSWORD,
+      retryStrategy: (times) => {
+        const base = Math.min(1000 * 2 ** Math.min(times, 5), 30000);
+        return Math.round(base / 2 + Math.random() * (base / 2));
+      },
     });
   }
 
@@ -294,7 +329,21 @@ export class RedisService implements OnModuleInit {
   async keys(pattern: string): Promise<string[]> {
     await this.waitForConnection();
     const prefixedPattern = this.prefixKey(pattern);
-    const keys = await this.client.keys(prefixedPattern);
+    // SCAN en vez de KEYS: KEYS bloquea el server entero mientras recorre todo
+    // el keyspace.
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const [nextCursor, encontradas] = await this.client.scan(
+        cursor,
+        'MATCH',
+        prefixedPattern,
+        'COUNT',
+        1000,
+      );
+      cursor = nextCursor;
+      keys.push(...encontradas);
+    } while (cursor !== '0');
     // Retornar keys sin prefijo para consistencia
     return keys.map((k) => k.replace(this.prefix, ''));
   }

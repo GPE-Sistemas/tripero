@@ -25,7 +25,7 @@ export class PositionSubscriberService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PositionSubscriberService.name);
-  private subscriber: Redis;
+  private subscriber?: Redis;
   private isSubscribed = false;
   private receivedCount = 0;
   private invalidCount = 0;
@@ -63,32 +63,30 @@ export class PositionSubscriberService
     const channel = REDIS_CHANNELS.POSITION_NEW;
     const prefixedChannel = this.redisService.getPrefixedChannel(channel);
 
+    // Un solo subscriber por proceso: si ya había uno (reintento tras error de
+    // subscribe) hay que cerrarlo, o Redis entrega una copia del mensaje por
+    // cada conexión suscripta y las posiciones se procesan más de una vez.
+    if (this.subscriber) {
+      this.subscriber.removeAllListeners();
+      this.subscriber.disconnect();
+      this.subscriber = undefined;
+    }
+
     try {
       this.subscriber = this.redisService.createSubscriber();
 
       this.subscriber.on('error', (error) => {
         this.logger.error('Redis subscriber error', error.stack);
-        this.isSubscribed = false;
       });
 
       this.subscriber.on('close', () => {
+        // Sin reconexión manual: ioredis reconecta y re-suscribe los canales.
         this.logger.warn('Redis subscriber connection closed');
         this.isSubscribed = false;
-
-        // Intentar reconectar después de 5 segundos
-        setTimeout(() => {
-          if (!this.isSubscribed) {
-            this.logger.log('Attempting to reconnect subscriber...');
-            this.subscribe();
-          }
-        }, 5000);
-      });
-
-      this.subscriber.on('connect', () => {
-        this.logger.log('Redis subscriber connected');
       });
 
       this.subscriber.on('ready', () => {
+        this.isSubscribed = true;
         this.logger.log('Redis subscriber ready');
       });
 
@@ -105,7 +103,7 @@ export class PositionSubscriberService
     } catch (error) {
       this.logger.error(`Error subscribing to ${prefixedChannel}`, error.stack);
 
-      // Reintentar después de 5 segundos
+      // Reintentar después de 5 segundos (subscribe() cierra el cliente previo)
       setTimeout(() => {
         this.logger.log('Retrying subscription...');
         this.subscribe();
