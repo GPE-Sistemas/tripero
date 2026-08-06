@@ -40,6 +40,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.prefix;
   }
 
+  constructor() {
+    // Conectar acá y no sólo en onModuleInit: otros providers pueden pedir
+    // Redis antes de que Nest corra los hooks del módulo, y ahí this.client
+    // todavía era undefined (TypeError en waitForConnection).
+    this.createClient();
+  }
+
   async onModuleInit() {
     this.createClient();
   }
@@ -53,6 +60,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   private createClient() {
+    // Idempotente: una sola conexión por proceso, la llame el constructor,
+    // onModuleInit o el primer uso.
+    if (this.client) return;
     // La reconexión la maneja ioredis con retryStrategy. No crear clientes
     // nuevos a mano: cada cliente extra queda vivo reintentando por su cuenta,
     // reinicia el contador de backoff en 1s y pisa el flag `ready` compartido.
@@ -110,6 +120,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async waitForConnection(timeoutMs = 5000): Promise<void> {
+    if (!this.client) this.createClient();
     if (this.client.status === 'ready') return;
 
     return new Promise((resolve, reject) => {
