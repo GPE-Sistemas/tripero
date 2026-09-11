@@ -20,6 +20,10 @@ export const DB_PORT = parseInt(process.env.DB_PORT || '5432', 10);
 export const DB_USERNAME = process.env.DB_USERNAME || 'postgres';
 export const DB_PASSWORD = process.env.DB_PASSWORD || 'postgres';
 export const DB_DATABASE = process.env.DB_DATABASE || 'tripero';
+// Schema de Postgres. Las tablas keyeadas por `activo._id` viven en
+// `tripero_b`; `public` es el schema viejo, keyeado por el `uniqueId` del
+// tracker. Cambiar de uno al otro es el cutover, y tambien el rollback.
+export const DB_SCHEMA = process.env.DB_SCHEMA || 'public';
 export const DB_LOGGING = process.env.DB_LOGGING === 'true';
 
 // Redis TTL Configuration (en segundos)
