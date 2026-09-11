@@ -6,6 +6,7 @@ import {
   DB_USERNAME,
   DB_PASSWORD,
   DB_DATABASE,
+  DB_SCHEMA,
   DB_LOGGING,
 } from '../env';
 import { Trip, Stop, TrackerState } from './entities';
@@ -24,6 +25,7 @@ import {
       username: DB_USERNAME,
       password: DB_PASSWORD,
       database: DB_DATABASE,
+      schema: DB_SCHEMA,
       entities: [Trip, Stop, TrackerState],
       synchronize: true, // TypeORM auto-crea/actualiza tablas
       logging: DB_LOGGING,
