@@ -14,6 +14,8 @@ import { EventPublisherService } from './event-publisher.service';
 import { TrackerStateService } from './tracker-state.service';
 import { TripRepository } from '../../database/repositories/trip.repository';
 import { StopRepository } from '../../database/repositories/stop.repository';
+import { IAvanceTrip } from '../../database/repositories/trip.repository';
+import { IDeviceMotionState } from '../models';
 
 /**
  * Servicio principal de procesamiento de posiciones GPS
@@ -127,9 +129,15 @@ export class PositionProcessorService {
         );
       }
 
-      // 8. Actualizar updated_at del trip si hay uno activo (throttled)
-      // Esto permite que el cleanup detecte trips huérfanos cuando el tracker deja de reportar
-      await this.updateTripTimestamp(result.updatedState.currentTripId);
+      // 8. Actualizar updated_at del trip si hay uno activo (throttled), junto con su
+      // avance (distancia, velocidades, última posición). Permite que el cleanup detecte
+      // trips huérfanos cuando el tracker deja de reportar y que, si los cierra, lo haga
+      // con los últimos valores conocidos en lugar de 0.
+      await this.updateTripTimestamp(
+        result.updatedState.currentTripId,
+        position,
+        result.updatedState,
+      );
 
       // 8b. Idem para la parada en curso: refrescar su updated_at mientras el tracker reporta.
       // Sin esto, una parada larga (vehículo estacionado) nunca refresca updated_at y el
@@ -739,7 +747,11 @@ export class PositionProcessorService {
    * Actualiza el timestamp updated_at del trip en la BD (con throttling)
    * Permite que el cleanup detecte trips huérfanos cuando el tracker deja de reportar
    */
-  private async updateTripTimestamp(tripId: string | undefined): Promise<void> {
+  private async updateTripTimestamp(
+    tripId: string | undefined,
+    position?: IPositionEvent,
+    estado?: IDeviceMotionState,
+  ): Promise<void> {
     if (!tripId) return;
 
     try {
@@ -748,7 +760,10 @@ export class PositionProcessorService {
 
       // Solo actualizar si pasaron más de 60 segundos desde el último update
       if (!lastUpdate || now - lastUpdate > this.TRIP_UPDATE_THROTTLE_MS) {
-        await this.tripRepository.touchTrip(tripId);
+        const avance = position
+          ? await this.avanceDelTrip(tripId, position, estado)
+          : undefined;
+        await this.tripRepository.touchTrip(tripId, avance);
         this.lastTripUpdateTime.set(tripId, now);
         this.logger.debug(
           `Updated trip ${tripId} timestamp (last update was ${lastUpdate ? Math.round((now - lastUpdate) / 1000) : 'never'}s ago)`,
@@ -760,6 +775,60 @@ export class PositionProcessorService {
         `Error updating trip timestamp for ${tripId}: ${error.message}`,
       );
     }
+  }
+
+  /**
+   * Avance del trip en curso para persistir con su heartbeat.
+   *
+   * La distancia sale del odómetro del TrackerState (total − inicio del trip),
+   * igual que al cerrar el trip normalmente, para que el valor parcial y el
+   * final se midan con la misma vara. Si el TrackerState no corresponde a este
+   * trip (se reseteó o ya apunta a otro), se usa lo que acumuló la máquina de
+   * estados. Sin ninguna de las dos fuentes no se guarda avance: mejor no
+   * escribir nada que escribir un 0 que pise un valor bueno.
+   */
+  private async avanceDelTrip(
+    tripId: string,
+    position: IPositionEvent,
+    estado?: IDeviceMotionState,
+  ): Promise<IAvanceTrip | undefined> {
+    const tracker = await this.trackerState.getState(position.deviceId);
+
+    let distancia: number | undefined;
+    let maxima: number | undefined;
+    if (
+      tracker &&
+      tracker.currentTripId === tripId &&
+      tracker.tripOdometerStart !== undefined
+    ) {
+      distancia = Math.max(0, tracker.totalOdometer - tracker.tripOdometerStart);
+      maxima = tracker.tripMaxSpeed;
+    } else if (estado?.currentTripId === tripId && estado.tripDistance != null) {
+      distancia = estado.tripDistance;
+      maxima = estado.tripMaxSpeed;
+    }
+    if (distancia === undefined) return undefined;
+
+    const avance: IAvanceTrip = {
+      distance: Math.round(distancia),
+      max_speed: Math.round(maxima ?? 0),
+      end_lat: position.latitude,
+      end_lon: position.longitude,
+    };
+
+    // Duración y promedio sólo si se conoce el inicio: un promedio calculado
+    // contra una duración inventada sería peor que no tenerlo.
+    const inicio =
+      estado?.currentTripId === tripId ? estado.tripStartTime : undefined;
+    if (inicio !== undefined) {
+      const duracion = Math.max(
+        0,
+        Math.round((position.timestamp - inicio) / 1000),
+      );
+      avance.duration = duracion;
+      avance.avg_speed = this.calculateAvgSpeed(distancia, duracion);
+    }
+    return avance;
   }
 
   /**
