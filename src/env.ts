@@ -53,7 +53,8 @@ export const IGNITION_EXPIRY_DAYS = parseInt(
 // Genérico: no asume que sea gestión -> URL + PATH + API key configurables.
 // Si GEOCODE_URL está vacío, el geocoding queda deshabilitado (best-effort).
 export const GEOCODE_URL = process.env.GEOCODE_URL || '';
-export const GEOCODE_PATH = process.env.GEOCODE_PATH || '/geocode-cache/reverse';
+export const GEOCODE_PATH =
+  process.env.GEOCODE_PATH || '/geocode-cache/reverse';
 export const GEOCODE_APIKEY = process.env.GEOCODE_APIKEY || '';
 export const GEOCODE_TIMEOUT_MS = parseInt(
   process.env.GEOCODE_TIMEOUT_MS || '4000',
@@ -66,3 +67,29 @@ export const GEOCODE_TIMEOUT_MS = parseInt(
 // apuntada a una BD compartida, para no cerrar trips/stops de otros devices).
 export const ORPHAN_CLEANUP_ENABLED =
   process.env.ORPHAN_CLEANUP_ENABLED !== 'false';
+
+// Corre SIEMPRE en segundo plano y por lotes, nunca durante el arranque.
+export const TRIP_REPAIR_ENABLED = process.env.TRIP_REPAIR_ENABLED !== 'false';
+
+// Espera antes del primer lote, para no competir con el arranque.
+export const TRIP_REPAIR_DELAY_MS = parseInt(
+  process.env.TRIP_REPAIR_DELAY_MS || String(2 * 60 * 1000),
+  10,
+);
+// Cada cuánto se procesa un lote.
+export const TRIP_REPAIR_INTERVAL_MS = parseInt(
+  process.env.TRIP_REPAIR_INTERVAL_MS || String(5 * 60 * 1000),
+  10,
+);
+// Trips por lote.
+export const TRIP_REPAIR_BATCH = parseInt(
+  process.env.TRIP_REPAIR_BATCH || '200',
+  10,
+);
+// Antigüedad máxima (por inicio del trip) que se intenta reparar. Acota la
+// consulta al índice de start_time; subirlo permite ponerse al día con
+// huérfanos viejos, de a un lote por intervalo.
+export const TRIP_REPAIR_WINDOW_DAYS = parseInt(
+  process.env.TRIP_REPAIR_WINDOW_DAYS || '7',
+  10,
+);

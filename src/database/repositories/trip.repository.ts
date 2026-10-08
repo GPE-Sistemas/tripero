@@ -40,6 +40,16 @@ export interface IUpdateTripData {
   metadata?: Record<string, any>;
 }
 
+/** Avance parcial de un trip en curso, persistido junto con su heartbeat. */
+export interface IAvanceTrip {
+  distance: number;
+  max_speed: number;
+  avg_speed?: number;
+  duration?: number;
+  end_lat?: number;
+  end_lon?: number;
+}
+
 @Injectable()
 export class TripRepository {
   constructor(
@@ -180,8 +190,21 @@ export class TripRepository {
    * Actualiza el timestamp updated_at del trip para indicar actividad reciente
    * Usado para detectar trips huérfanos (sin posiciones recientes)
    */
-  async touchTrip(id: string): Promise<void> {
-    await this.tripRepo.update({ id }, { updated_at: new Date() });
+  /**
+   * Marca el trip como "vivo" y, si viene, guarda su avance hasta el momento.
+   *
+   * El avance (distancia, velocidades, última posición) antes vivía sólo en el
+   * estado de Redis hasta que el trip cerraba. Si ese estado se perdía —un
+   * reinicio, un reset de estado viejo— el trip quedaba en la base con
+   * distancia 0 y ya no había de dónde recuperarla: así quedaron los viajes del
+   * incidente del 05/10/2026. Con el avance persistido, el cierre por huérfano
+   * usa los últimos valores conocidos (como mucho un minuto de atraso).
+   */
+  async touchTrip(id: string, avance?: IAvanceTrip): Promise<void> {
+    await this.tripRepo.update(
+      { id, is_active: true },
+      { updated_at: new Date(), ...(avance ?? {}) },
+    );
   }
 
   async getStatsByAsset(
@@ -219,13 +242,29 @@ export class TripRepository {
     };
   }
 
-  async findTripsForBackfill(): Promise<Trip[]> {
+  /**
+   * Próximo lote de trips huérfanos sin métricas que todavía no se intentaron
+   * reparar.
+   *
+   * Cada trip se intenta UNA sola vez: el reparador lo marca en
+   * `metadata.reparacion` con el resultado (reparado o irreparable) y queda
+   * fuera de esta consulta, así la lista no crece con los que no tienen arreglo.
+   *
+   * Sólo mira trips que empezaron después de `desde`: así la consulta va por el
+   * índice de `start_time` y no barre la tabla entera cada pocos minutos. Los
+   * huérfanos más viejos no tienen en Tripero datos con qué repararlos; se
+   * recuperan aparte, desde los reportes guardados en Mongo.
+   */
+  async findTripsParaReparar(desde: Date, limite: number): Promise<Trip[]> {
     return await this.tripRepo
       .createQueryBuilder('trip')
-      .where('trip.is_active = false')
+      .where('trip.start_time >= :desde', { desde })
+      .andWhere('trip.is_active = false')
       .andWhere('(trip.distance = 0 OR trip.distance IS NULL)')
       .andWhere(`trip.metadata->>'closedBy' = 'orphan_cleanup'`)
+      .andWhere(`trip.metadata->'reparacion' IS NULL`)
       .orderBy('trip.start_time', 'DESC')
+      .limit(limite)
       .getMany();
   }
 

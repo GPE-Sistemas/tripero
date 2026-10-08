@@ -16,6 +16,7 @@ import {
   DistanceValidatorService,
   TripQualityAnalyzerService,
   OrphanTripCleanupService,
+  TripRepairService,
 } from './services';
 
 @Module({
@@ -35,6 +36,7 @@ import {
     DistanceValidatorService,
     TripQualityAnalyzerService,
     OrphanTripCleanupService,
+    TripRepairService,
   ],
   exports: [
     StateMachineService,
@@ -51,6 +53,7 @@ import {
     DistanceValidatorService,
     TripQualityAnalyzerService,
     OrphanTripCleanupService,
+    TripRepairService,
   ],
 })
 export class DetectionModule {}

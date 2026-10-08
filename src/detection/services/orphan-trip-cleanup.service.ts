@@ -9,11 +9,7 @@ import { StopRepository } from '../../database/repositories/stop.repository';
 import { DeviceStateService } from './device-state.service';
 import { TrackerStateService } from './tracker-state.service';
 import { TripQualityAnalyzerService } from './trip-quality-analyzer.service';
-import {
-  DEFAULT_THRESHOLDS,
-  MotionState,
-  IDeviceMotionState,
-} from '../models';
+import { DEFAULT_THRESHOLDS, MotionState, IDeviceMotionState } from '../models';
 import { Trip } from '../../database/entities/trip.entity';
 import { ORPHAN_CLEANUP_ENABLED } from '../../env';
 
@@ -34,13 +30,17 @@ import { ORPHAN_CLEANUP_ENABLED } from '../../env';
 export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrphanTripCleanupService.name);
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private cleanupInicial: NodeJS.Timeout | null = null;
 
   // Intervalo de cleanup en milisegundos (1 hora)
   private readonly CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
+  // Espera antes de la primera limpieza, para no competir con el arranque
+  private readonly CLEANUP_INITIAL_DELAY_MS = 60 * 1000;
+
   // Timeout para considerar un trip huérfano (en horas)
   private readonly ORPHAN_TIMEOUT_HOURS =
-    DEFAULT_THRESHOLDS.orphanTripTimeout / 3600; // 4 horas por defecto
+    DEFAULT_THRESHOLDS.orphanTripTimeout / 3600; // 0,5 h (orphanTripTimeout = 1800 s)
 
   constructor(
     private readonly tripRepository: TripRepository,
@@ -50,7 +50,7 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
     private readonly tripQualityAnalyzer: TripQualityAnalyzerService,
   ) {}
 
-  async onModuleInit() {
+  onModuleInit(): void {
     if (!ORPHAN_CLEANUP_ENABLED) {
       this.logger.warn(
         'Orphan cleanup DESACTIVADO (ORPHAN_CLEANUP_ENABLED=false). No se ejecutará la limpieza periódica.',
@@ -58,12 +58,13 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    if (process.env.BACKFILL_ORPHAN_METRICS === 'true') {
-      await this.runBackfill();
-    }
-
-    // Ejecutar cleanup inicial
-    await this.runCleanup();
+    // Nada de await acá. Nest no hace app.listen() hasta que terminan todos los
+    // onModuleInit, y mientras tanto la startupProbe no encuentra el puerto.
+    this.cleanupInicial = setTimeout(() => {
+      this.runCleanup().catch((error) => {
+        this.logger.error('Error in initial cleanup', error.stack);
+      });
+    }, this.CLEANUP_INITIAL_DELAY_MS);
 
     // Programar cleanup periódico cada hora
     this.cleanupInterval = setInterval(() => {
@@ -74,77 +75,18 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(
       `Orphan cleanup service started (interval: ${this.CLEANUP_INTERVAL_MS / 1000 / 60} minutes, ` +
-        `timeout: ${this.ORPHAN_TIMEOUT_HOURS} hours)`,
+        `timeout: ${this.ORPHAN_TIMEOUT_HOURS} hours, primera pasada en ${this.CLEANUP_INITIAL_DELAY_MS / 1000}s)`,
     );
   }
 
-  async onModuleDestroy() {
+  onModuleDestroy(): void {
+    if (this.cleanupInicial) {
+      clearTimeout(this.cleanupInicial);
+      this.cleanupInicial = null;
+    }
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
-    }
-  }
-
-  /**
-   * Backfill de métricas para trips huérfanos ya cerrados sin distance/speed.
-   * Activar con BACKFILL_ORPHAN_METRICS=true en el despliegue.
-   */
-  async runBackfill(): Promise<void> {
-    this.logger.log('Starting backfill of orphan trip metrics...');
-    const startTime = Date.now();
-
-    try {
-      const trips = await this.tripRepository.findTripsForBackfill();
-
-      if (trips.length === 0) {
-        this.logger.log('Backfill: no trips to process');
-        return;
-      }
-
-      this.logger.log(`Backfill: processing ${trips.length} trips`);
-
-      let updated = 0;
-      let skipped = 0;
-
-      for (const trip of trips) {
-        try {
-          const duration =
-            trip.duration ??
-            Math.floor(
-              (trip.updated_at.getTime() - trip.start_time.getTime()) / 1000,
-            );
-
-          const { tripData, metadataExtra } =
-            await this.calcularMetricasHuerfano(trip, duration);
-
-          if (metadataExtra.metricsSource === 'not_available') {
-            skipped++;
-            continue;
-          }
-
-          await this.tripRepository.update(trip.id, {
-            ...tripData,
-            metadata: {
-              ...(trip.metadata || {}),
-              ...metadataExtra,
-              backfilledAt: new Date().toISOString(),
-            },
-          });
-
-          updated++;
-        } catch (error) {
-          this.logger.error(
-            `Backfill error on trip ${trip.id}: ${error.message}`,
-          );
-        }
-      }
-
-      const elapsed = Date.now() - startTime;
-      this.logger.log(
-        `Backfill completed in ${elapsed}ms: ${updated} updated, ${skipped} skipped (no tracker state)`,
-      );
-    } catch (error) {
-      this.logger.error('Backfill failed', error.stack);
     }
   }
 
@@ -258,7 +200,17 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
         trip.id_activo,
       );
 
+      // NIVEL C: sin TrackerState
       if (!trackerState) {
+        // Sin TrackerState, lo único confiable es el avance que guardó el trip.
+        if (trip.distance > 0 && durationSeconds > 0) {
+          return {
+            tripData: {
+              avg_speed: Math.round((trip.distance / durationSeconds) * 3.6),
+            },
+            metadataExtra: { metricsSource: 'avance_guardado' },
+          };
+        }
         return {
           tripData: {},
           metadataExtra: { metricsSource: 'not_available' },
@@ -272,6 +224,7 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
         trackerState.currentTripId === trip.id &&
         trackerState.tripOdometerStart !== undefined;
 
+      //NIVEL A: estado completo (currentTripId coincide y tripOdometerStart disponible)
       if (hasFullState) {
         const distance = Math.max(
           0,
@@ -327,29 +280,54 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
         };
       }
 
-      // Nivel B: estado parcial — solo coordenadas de fin
+      // Nivel B: estado parcial. El TrackerState ya no corresponde a este trip
+      // (se reseteó o el vehículo arrancó otro), así que su odómetro no sirve.
+      //
+      // Lo que vale es el AVANCE que el propio trip fue guardando con cada
+      // heartbeat (distance, max_speed, end_lat/lon): si existe, se respeta y
+      // sólo se completa el promedio contra la duración real del cierre.
+      //
+      // La última posición del TrackerState se usa como punto de llegada SÓLO
+      // si el trip no tiene uno y esa posición no es posterior al último
+      // heartbeat del trip; si no, sería la posición de otro viaje.
+      const distanciaGuardada = trip.distance > 0 ? trip.distance : 0;
+      const posicionDelTracker =
+        endLat !== undefined &&
+        endLon !== undefined &&
+        trip.end_lat == null &&
+        trackerState.lastPositionTime !== undefined &&
+        trackerState.lastPositionTime.getTime() <=
+          trip.updated_at.getTime() + 60 * 1000;
+      const llegadaLat = posicionDelTracker
+        ? endLat
+        : (trip.end_lat ?? undefined);
+      const llegadaLon = posicionDelTracker
+        ? endLon
+        : (trip.end_lon ?? undefined);
+
       const startLat = trip.start_lat ?? 0;
       const startLon = trip.start_lon ?? 0;
-      const endLatVal = endLat ?? startLat;
-      const endLonVal = endLon ?? startLon;
+      const avgSpeed =
+        distanciaGuardada > 0 && durationSeconds > 0
+          ? Math.round((distanciaGuardada / durationSeconds) * 3.6)
+          : 0;
 
       const qualityAnalysis = this.tripQualityAnalyzer.analyzeTripQuality(
         startLat,
         startLon,
-        endLatVal,
-        endLonVal,
+        llegadaLat ?? startLat,
+        llegadaLon ?? startLon,
+        distanciaGuardada,
         0,
         0,
-        0,
-        0,
+        avgSpeed,
         0,
       );
 
       return {
         tripData: {
-          ...(endLat !== undefined && endLon !== undefined
-            ? { end_lat: endLat, end_lon: endLon }
-            : {}),
+          ...(distanciaGuardada > 0 ? { avg_speed: avgSpeed } : {}),
+          ...(posicionDelTracker ? { end_lat: endLat, end_lon: endLon } : {}),
           quality_flag: qualityAnalysis.qualityFlag,
           quality_metadata: {
             tripRatio: qualityAnalysis.tripRatio,
@@ -360,7 +338,8 @@ export class OrphanTripCleanupService implements OnModuleInit, OnModuleDestroy {
           route_linear_ratio: qualityAnalysis.tripRatio,
         },
         metadataExtra: {
-          metricsSource: 'tracker_state_partial',
+          metricsSource:
+            distanciaGuardada > 0 ? 'avance_guardado' : 'tracker_state_partial',
           trackerCurrentTripId: trackerState.currentTripId,
           hasTripOdometerStart: trackerState.tripOdometerStart !== undefined,
         },

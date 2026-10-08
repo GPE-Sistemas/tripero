@@ -12,3 +12,4 @@ export * from './device-event-queue.manager';
 export * from './distance-validator.service';
 export * from './trip-quality-analyzer.service';
 export * from './orphan-trip-cleanup.service';
+export * from './trip-repair.service';

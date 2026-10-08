@@ -90,6 +90,36 @@ export class StopRepository {
     });
   }
 
+  /**
+   * Última parada del vehículo que empezó antes (o en el mismo instante) que
+   * `fecha`. Su odómetro final es el odómetro con el que arrancó el trip
+   * siguiente. Va por el índice (id_activo, start_time).
+   */
+  async findUltimaAntesDe(id_activo: string, fecha: Date): Promise<Stop | null> {
+    return await this.stopRepo
+      .createQueryBuilder('stop')
+      .where('stop.id_activo = :id_activo', { id_activo })
+      .andWhere('stop.start_time <= :fecha', { fecha })
+      .orderBy('stop.start_time', 'DESC')
+      .limit(1)
+      .getOne();
+  }
+
+  /** Paradas del vehículo que empezaron dentro de [desde, hasta], en orden. */
+  async findEmpezadasEntre(
+    id_activo: string,
+    desde: Date,
+    hasta: Date,
+  ): Promise<Stop[]> {
+    return await this.stopRepo
+      .createQueryBuilder('stop')
+      .where('stop.id_activo = :id_activo', { id_activo })
+      .andWhere('stop.start_time > :desde', { desde })
+      .andWhere('stop.start_time <= :hasta', { hasta })
+      .orderBy('stop.start_time', 'ASC')
+      .getMany();
+  }
+
   async findByAssetAndTimeRange(
     id_activo: string,
     startTime: Date,
